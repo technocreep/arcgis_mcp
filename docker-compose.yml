@@ -24,16 +24,17 @@ services:
     restart: unless-stopped
 
   # ---------------------------------------------------------------------------
-  # gis-mcp — MCP Server (FastMCP, HTTP-транспорт)
-  # Доступен для Open WebUI и других LLM-клиентов.
-  # Подключение в Open WebUI: http://localhost:10002/mcp
+  # gis-mcp — OpenAPI Tool Server (FastAPI)
+  # Доступен для Open WebUI как OpenAPI-инструменты.
+  # Подключение в Open WebUI: http://localhost:10002/openapi.json
+  # Swagger UI: http://localhost:10002/docs
   # ---------------------------------------------------------------------------
   gis-mcp:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: gis-mcp-server
-    command: ["python", "-m", "arcgis_mcp.mcp_server.server"]
+    command: ["uvicorn", "arcgis_mcp.api_server.server:app", "--host", "0.0.0.0", "--port", "8000"]
     ports:
       - "10002:8000"
     volumes:
@@ -41,8 +42,6 @@ services:
       - ./arcgis_mcp:/app/arcgis_mcp
     environment:
       - PROJECTS_DIR=/app/projects
-      - MCP_TRANSPORT=http
-      - MCP_PORT=8000
     restart: unless-stopped
     depends_on:
       - gis-loader
