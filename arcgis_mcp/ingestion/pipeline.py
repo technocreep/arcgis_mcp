@@ -100,6 +100,17 @@ def run_pipeline(
     project_dir = output_dir / project_id
     project_dir.mkdir(parents=True, exist_ok=True)
 
+    # .gdb → data/{gdb_name}  (нужна для P1-инструментов: query, vis, attachments)
+    data_dir = project_dir / "data"
+    data_dir.mkdir(exist_ok=True)
+    gdb_dest = data_dir / gdb_path.name
+    if not gdb_dest.exists():
+        log(f"  Копирование .gdb ({gdb_path.name})...")
+        shutil.copytree(gdb_path, gdb_dest)
+        log(f"  -> {gdb_dest}")
+    else:
+        log(f"  .gdb уже существует: {gdb_dest}")
+
     # manifest.json
     manifest_path = project_dir / "manifest.json"
     manifest_path.write_text(
