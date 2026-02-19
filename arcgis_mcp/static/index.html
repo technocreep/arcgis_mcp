@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GIS Agent Ingestion</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        [v-cloak] { display: none; }
+        .fade-enter-active, .fade-leave-active { transition: opacity 0.3s; }
+        .fade-enter-from, .fade-leave-to { opacity: 0; }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800">
+    <div id="app" v-cloak class="min-h-screen flex flex-col">
+        <!-- Header -->
+        <header class="bg-white shadow-sm border-b border-slate-200">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+                <div class="flex items-center gap-3">
+                    <div class="bg-blue-600 text-white p-2 rounded-lg">
+                        <i class="fa-solid fa-layer-group"></i>
+                    </div>
+                    <h1 class="text-xl font-bold text-slate-900">GIS Agent <span class="text-blue-600">Ingestion</span></h1>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button @click="openAuthModal" :title="authHeader ? 'Credentials set: ' + authUser : 'Set credentials'"
+                        :class="authHeader ? 'text-green-600 hover:text-green-800' : 'text-amber-500 hover:text-amber-700'"
+                        class="p-2 rounded-md transition-colors">
+                        <i :class="authHeader ? 'fa-solid fa-lock' : 'fa-solid fa-lock-open'" class="text-lg"></i>
+                    </button>
+                    <button @click="showUploadModal = true" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2">
+                        <i class="fa-solid fa-plus"></i> Upload Project
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="flex-grow max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full">
+            
+            <!-- Loading State -->
+            <div v-if="loading" class="flex justify-center py-12">
+                <i class="fa-solid fa-circle-notch fa-spin text-3xl text-blue-500"></i>
+            </div>
+
+            <!-- Empty State -->
+            <div v-else-if="projects.length === 0" class="text-center py-20 bg-white rounded-xl border border-dashed border-slate-300">
+                <i class="fa-regular fa-folder-open text-4xl text-slate-300 mb-4"></i>
+                <h3 class="text-lg font-medium text-slate-900">No projects found</h3>
+                <p class="text-slate-500 mt-1">Upload a .gdb archive to get started.</p>
+            </div>
+
+            <!-- Projects Grid -->
+            <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <div v-for="project in projects" :key="project.id" class="bg-white rounded-xl shadow-sm border border-slate-200 hover:shadow-md transition-shadow overflow-hidden flex flex-col">
+                    <div class="p-5 flex-grow">
+                        <div class="flex justify-between items-start mb-2">
+                            <h3 class="text-lg font-semibold text-slate-900 truncate" :title="project.name">{{ project.name || project.id }}</h3>
+                            <span class="text-xs font-mono bg-slate-100 text-slate-600 px-2 py-1 rounded">{{ project.id }}</span>
+                        </div>
+                        <div class="text-sm text-slate-500 mb-4">
+                            <i class="fa-regular fa-clock mr-1"></i> {{ formatDate(project.created_at) }}
+                        </div>
+                        
+                        <div class="grid grid-cols-2 gap-4 mb-4">
+                            <div class="bg-slate-50 p-3 rounded-lg">
+                                <div class="text-xs text-slate-500 uppercase font-bold">Layers</div>
+                                <div class="text-xl font-semibold text-slate-700">{{ project.layers_count }}</div>
+                            </div>
+                            <div class="bg-slate-50 p-3 rounded-lg">
+                                <div class="text-xs text-slate-500 uppercase font-bold">Attachments</div>
+                                <div class="text-xl font-semibold" :class="project.has_attachments ? 'text-green-600' : 'text-slate-400'">
+                                    <i :class="project.has_attachments ? 'fa-solid fa-check' : 'fa-solid fa-xmark'"></i>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="bg-slate-50 px-5 py-3 border-t border-slate-100 flex justify-between items-center">
+                        <a :href="`/api/projects/${project.id}`" target="_blank" class="text-sm text-blue-600 hover:text-blue-800 font-medium">
+                            View Manifest <i class="fa-solid fa-arrow-up-right-from-square ml-1"></i>
+                        </a>
+                        <button @click="deleteProject(project.id)" class="text-slate-400 hover:text-red-600 transition-colors">
+                            <i class="fa-regular fa-trash-can"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- Auth Modal -->
+        <div v-if="showAuthModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div class="bg-white rounded-xl shadow-xl max-w-sm w-full overflow-hidden">
+                <div class="px-6 py-4 border-b border-slate-100 flex justify-between items-center">
+                    <h3 class="text-lg font-semibold text-slate-900">API Credentials</h3>
+                    <button @click="showAuthModal = false" class="text-slate-400 hover:text-slate-600">
+                        <i class="fa-solid fa-xmark text-xl"></i>
+                    </button>
+                </div>
+                <div class="p-6 space-y-4">
+                    <p class="text-sm text-slate-500">Credentials are stored in your browser's localStorage and sent with upload/delete requests.</p>
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-1">Username</label>
+                        <input v-model="authDraft.user" type="text" autocomplete="username"
+                            class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-1">Password</label>
+                        <input v-model="authDraft.pass" type="password" autocomplete="current-password"
+                            class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all">
+                    </div>
+                    <div class="flex justify-end gap-3 pt-2">
+                        <button type="button" @click="showAuthModal = false" class="px-4 py-2 text-slate-700 hover:bg-slate-100 rounded-lg text-sm font-medium transition-colors">Cancel</button>
+                        <button type="button" @click="saveCredentials" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors shadow-sm">Save</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Upload Modal -->
+        <div v-if="showUploadModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div class="bg-white rounded-xl shadow-xl max-w-lg w-full overflow-hidden">
+                <div class="px-6 py-4 border-b border-slate-100 flex justify-between items-center">
+                    <h3 class="text-lg font-semibold text-slate-900">Upload New Project</h3>
+                    <button @click="showUploadModal = false" class="text-slate-400 hover:text-slate-600">
+                        <i class="fa-solid fa-xmark text-xl"></i>
+                    </button>
+                </div>
+                
+                <form @submit.prevent="uploadProject" class="p-6 space-y-4">
+                    <!-- Project ID -->
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-1">Project ID (Slug)</label>
+                        <input v-model="form.id" type="text" required pattern="[a-z0-9-_]+" placeholder="e.g. lekyn-talbey" 
+                            class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all">
+                        <p class="text-xs text-slate-500 mt-1">Only lowercase letters, numbers, hyphens.</p>
+                    </div>
+
+                    <!-- GDB File -->
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-1">Geodatabase (.gdb as .zip) <span class="text-red-500">*</span></label>
+                        <input ref="gdbInput" type="file" accept=".zip" required 
+                            class="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100">
+                    </div>
+
+                    <!-- APRX File -->
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-1">ArcGIS Project (.aprx)</label>
+                        <input ref="aprxInput" type="file" accept=".aprx"
+                            class="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-slate-50 file:text-slate-700 hover:file:bg-slate-100">
+                        <p class="text-xs text-amber-600 mt-1">
+                            <i class="fa-solid fa-triangle-exclamation"></i> Without .aprx, layer names will be technical.
+                        </p>
+                    </div>
+
+                    <!-- ATBX File -->
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-1">Toolbox (.atbx) <span class="text-slate-400 font-normal">optional</span></label>
+                        <input ref="atbxInput" type="file" accept=".atbx"
+                            class="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-slate-50 file:text-slate-700 hover:file:bg-slate-100">
+                    </div>
+
+                    <!-- Progress Bar -->
+                    <div v-if="uploading" class="mt-4">
+                        <div class="flex justify-between text-xs mb-1">
+                            <span class="font-medium text-blue-700">Processing...</span>
+                            <span class="text-slate-500">This may take a minute</span>
+                        </div>
+                        <div class="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden">
+                            <div class="bg-blue-600 h-2.5 rounded-full animate-pulse w-full"></div>
+                        </div>
+                    </div>
+
+                    <!-- Error Message -->
+                    <div v-if="error" class="bg-red-50 text-red-700 p-3 rounded-lg text-sm flex items-start gap-2">
+                        <i class="fa-solid fa-circle-exclamation mt-0.5"></i>
+                        <span>{{ error }}</span>
+                    </div>
+
+                    <div class="pt-2 flex justify-end gap-3">
+                        <button type="button" @click="showUploadModal = false" class="px-4 py-2 text-slate-700 hover:bg-slate-100 rounded-lg text-sm font-medium transition-colors">Cancel</button>
+                        <button type="submit" :disabled="uploading" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white rounded-lg text-sm font-medium transition-colors shadow-sm">
+                            {{ uploading ? 'Uploading...' : 'Start Ingestion' }}
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const { createApp, ref, computed, onMounted } = Vue
+
+        createApp({
+            setup() {
+                const projects = ref([])
+                const loading = ref(true)
+                const showUploadModal = ref(false)
+                const showAuthModal = ref(false)
+                const uploading = ref(false)
+                const error = ref(null)
+
+                const form = ref({ id: '' })
+                const gdbInput = ref(null)
+                const aprxInput = ref(null)
+                const atbxInput = ref(null)
+
+                // Credentials — persisted in localStorage
+                const authUser = ref(localStorage.getItem('gis_auth_user') || 'admin')
+                const authPass = ref(localStorage.getItem('gis_auth_pass') || '')
+                const authDraft = ref({ user: '', pass: '' })
+
+                const authHeader = computed(() => {
+                    if (!authUser.value || !authPass.value) return null
+                    return 'Basic ' + btoa(authUser.value + ':' + authPass.value)
+                })
+
+                const saveCredentials = () => {
+                    authUser.value = authDraft.value.user
+                    authPass.value = authDraft.value.pass
+                    localStorage.setItem('gis_auth_user', authUser.value)
+                    localStorage.setItem('gis_auth_pass', authPass.value)
+                    showAuthModal.value = false
+                }
+
+                const openAuthModal = () => {
+                    authDraft.value = { user: authUser.value, pass: authPass.value }
+                    showAuthModal.value = true
+                }
+
+                const fetchProjects = async () => {
+                    loading.value = true
+                    try {
+                        const res = await fetch('/api/projects')
+                        const data = await res.json()
+                        projects.value = data.projects
+                    } catch (e) {
+                        console.error(e)
+                    } finally {
+                        loading.value = false
+                    }
+                }
+
+                const uploadProject = async () => {
+                    if (!authHeader.value) {
+                        error.value = 'Please set credentials first (lock icon in the header).'
+                        return
+                    }
+                    uploading.value = true
+                    error.value = null
+
+                    const formData = new FormData()
+                    formData.append('project_id', form.value.id)
+
+                    if (gdbInput.value?.files[0]) {
+                        formData.append('gdb_zip', gdbInput.value.files[0])
+                    }
+                    if (aprxInput.value?.files[0]) {
+                        formData.append('aprx', aprxInput.value.files[0])
+                    }
+                    if (atbxInput.value?.files[0]) {
+                        formData.append('atbx', atbxInput.value.files[0])
+                    }
+
+                    try {
+                        const res = await fetch('/api/upload', {
+                            method: 'POST',
+                            headers: { 'Authorization': authHeader.value },
+                            body: formData
+                        })
+
+                        if (res.status === 401) {
+                            throw new Error('Invalid credentials. Check username/password (lock icon).')
+                        }
+                        if (!res.ok) {
+                            const err = await res.json().catch(() => ({}))
+                            throw new Error(err.detail || 'Upload failed')
+                        }
+
+                        showUploadModal.value = false
+                        form.value.id = ''
+                        if (gdbInput.value) gdbInput.value.value = ''
+                        if (aprxInput.value) aprxInput.value.value = ''
+                        if (atbxInput.value) atbxInput.value.value = ''
+                        await fetchProjects()
+
+                    } catch (e) {
+                        error.value = e.message
+                    } finally {
+                        uploading.value = false
+                    }
+                }
+
+                const deleteProject = async (id) => {
+                    if (!confirm(`Are you sure you want to delete project '${id}'?`)) return
+                    if (!authHeader.value) {
+                        alert('Please set credentials first (lock icon in the header).')
+                        return
+                    }
+
+                    try {
+                        const res = await fetch(`/api/projects/${id}`, {
+                            method: 'DELETE',
+                            headers: { 'Authorization': authHeader.value }
+                        })
+                        if (res.status === 401) {
+                            alert('Invalid credentials. Check username/password (lock icon).')
+                            return
+                        }
+                        if (res.ok) {
+                            await fetchProjects()
+                        }
+                    } catch (e) {
+                        alert('Failed to delete')
+                    }
+                }
+
+                const formatDate = (isoString) => {
+                    if (!isoString) return 'Unknown date'
+                    return new Date(isoString).toLocaleDateString(undefined, {
+                        year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+                    })
+                }
+
+                onMounted(() => {
+                    fetchProjects()
+                })
+
+                return {
+                    projects,
+                    loading,
+                    showUploadModal,
+                    showAuthModal,
+                    uploading,
+                    error,
+                    form,
+                    gdbInput,
+                    aprxInput,
+                    atbxInput,
+                    authUser,
+                    authPass,
+                    authDraft,
+                    authHeader,
+                    openAuthModal,
+                    saveCredentials,
+                    uploadProject,
+                    deleteProject,
+                    formatDate
+                }
+            }
+        }).mount('#app')
+    </script>
+</body>
+</html>

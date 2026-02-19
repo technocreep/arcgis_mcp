@@ -205,3 +205,10 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# GIS Agent Service
+.DS_Store
+projects/
+arcgis_mcp/.claude/
+arcgis_mcp/.env
+arcgis_mcp/projects/

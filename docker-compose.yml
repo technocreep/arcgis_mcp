@@ -1,0 +1,51 @@
+services:
+
+  # ---------------------------------------------------------------------------
+  # gis-loader — Ingestion API (FastAPI)
+  # Веб-интерфейс для загрузки проектов (.gdb + .aprx).
+  # Доступ: http://localhost:10003
+  # Учётные данные: GIS_USERNAME / GIS_PASSWORD
+  # ---------------------------------------------------------------------------
+  gis-loader:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: gis-loader-server
+    command: ["uvicorn", "arcgis_mcp.ingestion.app:app", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "10003:8000"
+    volumes:
+      - projects:/app/projects            # общий том с gis-mcp
+      - ./arcgis_mcp:/app/arcgis_mcp      # горячая перезагрузка кода при разработке
+    environment:
+      - PROJECTS_DIR=/app/projects
+      - GIS_USERNAME=${GIS_USERNAME:-admin}
+      - GIS_PASSWORD=${GIS_PASSWORD:-secret}
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # gis-mcp — MCP Server (FastMCP, HTTP-транспорт)
+  # Доступен для Open WebUI и других LLM-клиентов.
+  # Подключение в Open WebUI: http://localhost:10002/mcp
+  # ---------------------------------------------------------------------------
+  gis-mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: gis-mcp-server
+    command: ["python", "-m", "arcgis_mcp.mcp_server.server"]
+    ports:
+      - "10002:8000"
+    volumes:
+      - projects:/app/projects            # читает те же проекты, что загрузил gis-loader
+      - ./arcgis_mcp:/app/arcgis_mcp
+    environment:
+      - PROJECTS_DIR=/app/projects
+      - MCP_TRANSPORT=http
+      - MCP_PORT=8000
+    restart: unless-stopped
+    depends_on:
+      - gis-loader
+
+volumes:
+  projects:
