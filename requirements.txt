@@ -4,6 +4,10 @@ geopandas>=0.14
 pyproj>=3.6
 shapely>=2.0
 
+# Визуализация
+matplotlib>=3.8
+scipy>=1.12
+
 # MCP Server (Фаза 2)
 fastmcp>=0.1
 

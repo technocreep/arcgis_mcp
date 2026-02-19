@@ -25,6 +25,7 @@ from arcgis_mcp.mcp_server.tools.attachments import make_tools as make_attachmen
 from arcgis_mcp.mcp_server.tools.inventory import make_tools as make_inventory_tools
 from arcgis_mcp.mcp_server.tools.izuchennost import make_tools as make_izuch_tools
 from arcgis_mcp.mcp_server.tools.query import make_tools as make_query_tools
+from arcgis_mcp.mcp_server.vis.tools import make_tools as make_vis_tools
 
 # ---------------------------------------------------------------------------
 # Приложение
@@ -61,11 +62,13 @@ _inv = make_inventory_tools(store, _state)
 _qry = make_query_tools(store, _state)
 _izuch = make_izuch_tools(store, _state)
 _att = make_attachment_tools(store, _state)
+_vis = make_vis_tools(store, _state)
 
 list_projects_fn, get_project_summary_fn, list_layers_fn, describe_layer_fn = _inv
 query_features_fn, summarize_layer_fn = _qry
 (search_izuchennost_fn,) = _izuch
 list_attachments_fn, extract_attachment_fn = _att
+visualize_layer_fn, plot_statistics_fn, interpolate_field_fn = _vis
 
 
 def _parse(result: str) -> Any:
@@ -329,4 +332,160 @@ async def extract_attachment(req: ExtractAttachmentRequest):
     """
     return _parse(
         extract_attachment_fn(req.table, req.index, req.output_dir, req.project_id)
+    )
+
+
+# ---------------------------------------------------------------------------
+# Visualization
+# ---------------------------------------------------------------------------
+
+class VisualizeLayerRequest(BaseModel):
+    layer: str = Field(..., description="Название слоя (display_name, layer_id или alias)")
+    color_by: Optional[str] = Field(
+        None,
+        description="Поле для цветового кодирования. Числовые → colorbar viridis, "
+                    "категориальные → легенда tab20. Если не указано — авто-выбор.",
+    )
+    title: Optional[str] = Field(None, description="Заголовок карты (авто, если не указан)")
+    overlay_layers: Optional[str] = Field(
+        None,
+        description=(
+            'JSON-список оверлеев поверх основного слоя. '
+            'Пример: \'[{"layer":"tect_lines","color":"black","linewidth":1.5},'
+            '{"layer":"ore_points","color":"gold","marker":"D"}]\''
+        ),
+    )
+    label_field: Optional[str] = Field(
+        None,
+        description="Поле для подписи объектов. Внимание: при >300 объектах подписи перекроются.",
+    )
+    output_dir: Optional[str] = Field(
+        None, description="Директория для сохранения PNG (по умолчанию: проект/vis_output/)"
+    )
+    project_id: Optional[str] = Field(
+        None, description="ID проекта (необязательно, если уже выбран)"
+    )
+
+
+@app.post(
+    "/visualize_layer",
+    operation_id="visualize_layer",
+    summary="Нарисовать слой на пространственной карте",
+    tags=["visualization"],
+)
+async def visualize_layer(req: VisualizeLayerRequest):
+    """Нарисовать один или несколько слоёв на пространственной карте и сохранить PNG.
+
+    Автоматически определяет тип геометрии (Point/Line/Polygon).
+    Раскраска по числовому полю → colorbar, по категориальному → легенда.
+    Через overlay_layers можно добавить дополнительные слои (тектоника, контур лицензии и т.д.).
+    Возвращает путь к сохранённому PNG-файлу.
+    """
+    return _parse(
+        visualize_layer_fn(
+            req.layer, req.color_by, req.title,
+            req.overlay_layers, req.label_field, req.output_dir, req.project_id,
+        )
+    )
+
+
+class PlotStatisticsRequest(BaseModel):
+    layer: str = Field(..., description="Название слоя (display_name, layer_id или alias)")
+    field: Optional[str] = Field(
+        None, description="Поле для анализа (авто-выбор первого числового, если не указано)"
+    )
+    chart_type: str = Field(
+        "histogram",
+        description=(
+            "Тип диаграммы: "
+            '"histogram" — распределение числового поля; '
+            '"bar" — top-20 значений категориального поля; '
+            '"pie" — круговая диаграмма; '
+            '"scatter" — scatter-plot (требует field2); '
+            '"profile" — значения поля по пространственной оси (field2="lat" или "lon").'
+        ),
+    )
+    field2: Optional[str] = Field(
+        None,
+        description='Второй аргумент: для scatter — Y-ось, для profile — "lat" или "lon".',
+    )
+    group_by: Optional[str] = Field(
+        None, description='Для bar/pie: группировать по этому полю вместо field.'
+    )
+    limit: int = Field(2000, ge=1, le=50000, description="Максимум объектов для загрузки (по умолчанию 2000)")
+    title: Optional[str] = Field(None, description="Заголовок (авто, если не указан)")
+    output_dir: Optional[str] = Field(None, description="Директория сохранения PNG")
+    project_id: Optional[str] = Field(
+        None, description="ID проекта (необязательно, если уже выбран)"
+    )
+
+
+@app.post(
+    "/plot_statistics",
+    operation_id="plot_statistics",
+    summary="Построить атрибутивный график по полю слоя",
+    tags=["visualization"],
+)
+async def plot_statistics(req: PlotStatisticsRequest):
+    """Универсальный атрибутивный график для поля слоя.
+
+    Поддерживает: histogram, bar, pie, scatter (корреляция двух полей),
+    profile (значения вдоль широты или долготы).
+    Возвращает путь к сохранённому PNG-файлу.
+    """
+    return _parse(
+        plot_statistics_fn(
+            req.layer, req.field, req.chart_type, req.field2,
+            req.group_by, req.limit, req.title, req.output_dir, req.project_id,
+        )
+    )
+
+
+class InterpolateFieldRequest(BaseModel):
+    layer: str = Field(..., description="Точечный слой (display_name, layer_id или alias)")
+    value_field: str = Field(
+        ...,
+        description='Числовое поле для интерполяции. Пример: "ID_123" (ΔG), "дельта_T" (ΔT).',
+    )
+    method: str = Field(
+        "linear",
+        description='Метод scipy.griddata: "linear" (по умолчанию), "nearest", "cubic".',
+    )
+    colormap: str = Field(
+        "RdYlBu_r",
+        description='Matplotlib colormap. Рекомендации: "RdYlBu_r" (ΔG), "RdBu_r" (ΔT), "hot_r" (градиенты).',
+    )
+    grid_resolution: int = Field(
+        300, ge=50, le=1000,
+        description="Число ячеек по каждой оси (по умолчанию 300×300)",
+    )
+    overlay_layer: Optional[str] = Field(
+        None,
+        description="Опциональный векторный оверлей поверх растра (например: контур лицензии, тектоника).",
+    )
+    title: Optional[str] = Field(None, description="Заголовок карты")
+    output_dir: Optional[str] = Field(None, description="Директория сохранения PNG")
+    project_id: Optional[str] = Field(
+        None, description="ID проекта (необязательно, если уже выбран)"
+    )
+
+
+@app.post(
+    "/interpolate_field",
+    operation_id="interpolate_field",
+    summary="Интерполировать точечное поле в растровую карту",
+    tags=["visualization"],
+)
+async def interpolate_field(req: InterpolateFieldRequest):
+    """Пространственная интерполяция числового поля точечного слоя в растровую сетку.
+
+    Применение: карты гравитационного/магнитного поля и их горизонтальных градиентов.
+    Использует scipy.interpolate.griddata (linear/nearest/cubic).
+    Возвращает путь к сохранённому PNG-файлу с полем stats (min/max/mean).
+    """
+    return _parse(
+        interpolate_field_fn(
+            req.layer, req.value_field, req.method, req.colormap,
+            req.grid_resolution, req.overlay_layer, req.title, req.output_dir, req.project_id,
+        )
     )
