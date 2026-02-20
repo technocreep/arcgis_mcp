@@ -96,6 +96,29 @@ def draw_license_boundary(ax: plt.Axes, lic_gdf: gpd.GeoDataFrame | None) -> Non
     )
 
 
+def get_license_view_bounds(
+    lic_gdf: gpd.GeoDataFrame | None,
+    margin: float = 0.10,
+) -> tuple[float, float, float, float] | None:
+    """Вернуть (minx, miny, maxx, maxy) по контуру лицензии + margin%. None если нет контура."""
+    if lic_gdf is None or lic_gdf.empty:
+        return None
+    b = lic_gdf.total_bounds  # [minx, miny, maxx, maxy]
+    dx = (b[2] - b[0]) * margin
+    dy = (b[3] - b[1]) * margin
+    return (float(b[0] - dx), float(b[1] - dy), float(b[2] + dx), float(b[3] + dy))
+
+
+def clip_to_view(
+    gdf: gpd.GeoDataFrame,
+    bounds: tuple[float, float, float, float],
+) -> gpd.GeoDataFrame:
+    """Обрезать GeoDataFrame по (minx, miny, maxx, maxy). Возвращает отфильтрованный слой."""
+    from shapely.geometry import box as _box
+    bbox = _box(*bounds)
+    return gdf[gdf.intersects(bbox)].copy()
+
+
 # ---------------------------------------------------------------------------
 # Статистика и colorbar
 # ---------------------------------------------------------------------------
@@ -167,13 +190,21 @@ def make_colorbar_label(field_name: str, units: str | None) -> str:
 
 def auto_colormap(field_name: str | None, units: str | None, display_name: str | None) -> str:
     """Подбор colormap по семантике поля и единиц измерения."""
+    import re
     units_str = units or ""
+    # Если units не задан — извлечь из display_name: "Поле дельта G (мГал)" → "мГал"
+    if not units_str and display_name:
+        m = re.search(r'\(([^)]+)\)\s*$', display_name)
+        if m:
+            units_str = m.group(1)
+
     field_str = (field_name or "").lower()
     display_str = (display_name or "").lower()
+    units_lower = units_str.lower()
 
-    if "мГал" in units_str or "Э" in units_str:
+    if "мгал" in units_lower or "э" in units_lower:
         return "RdYlBu_r"
-    if "нТл" in units_str:
+    if "нтл" in units_lower:
         return "RdBu_r"
     if any(kw in field_str for kw in ("elev", "height", "abs", "phlr", "relief", "_z", "point_z")):
         return "terrain"

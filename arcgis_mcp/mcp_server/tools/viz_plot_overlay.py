@@ -21,6 +21,8 @@ from .viz_utils import (
     prepare_for_plot,
     get_license_boundary,
     draw_license_boundary,
+    get_license_view_bounds,
+    clip_to_view,
     clip_quantiles,
     make_colorbar_label,
     auto_colormap,
@@ -91,6 +93,10 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
         loaded_layers: list[str] = []
         all_bounds: list = []
 
+        # Загружаем контур лицензии заранее — он определяет extent карты
+        lic_gdf = get_license_boundary(pid, store) if show_license else None
+        view_bounds = get_license_view_bounds(lic_gdf)
+
         for spec in layer_specs:
             if not isinstance(spec, dict) or "layer_id" not in spec:
                 continue
@@ -108,6 +114,12 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
 
             if gdf.empty:
                 continue
+
+            # Обрезать слой по границам лицензии (если они есть)
+            if view_bounds:
+                gdf = clip_to_view(gdf, view_bounds)
+                if gdf.empty:
+                    continue
 
             gdf, _ = prepare_for_plot(gdf, max_features=50_000)
             all_bounds.append(gdf.total_bounds)
@@ -157,20 +169,21 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
             plt.close(fig)
             return json.dumps({"error": "Ни один слой не загружен успешно."}, ensure_ascii=False)
 
-        # Контур лицензии последним
-        if show_license:
-            lic_gdf = get_license_boundary(pid, store)
+        # Контур лицензии последним (поверх всех слоёв)
+        if show_license and lic_gdf is not None:
             draw_license_boundary(ax, lic_gdf)
-            if lic_gdf is not None:
-                legend_handles.append(
-                    Line2D([0], [0], color="red", linewidth=2, linestyle="--", label="Контур лицензии")
-                )
+            legend_handles.append(
+                Line2D([0], [0], color="red", linewidth=2, linestyle="--", label="Контур лицензии")
+            )
 
         if show_legend and legend_handles:
             ax.legend(handles=legend_handles, loc="upper right", fontsize=8)
 
-        # Extent по всем слоям
-        if all_bounds:
+        # Extent: сначала по контуру лицензии, иначе — по всем слоям
+        if view_bounds:
+            ax.set_xlim(view_bounds[0], view_bounds[2])
+            ax.set_ylim(view_bounds[1], view_bounds[3])
+        elif all_bounds:
             all_bounds_arr = np.array(all_bounds)
             ax.set_xlim(all_bounds_arr[:, 0].min(), all_bounds_arr[:, 2].max())
             ax.set_ylim(all_bounds_arr[:, 1].min(), all_bounds_arr[:, 3].max())

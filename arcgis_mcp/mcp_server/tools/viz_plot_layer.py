@@ -21,6 +21,7 @@ from .viz_utils import (
     prepare_for_plot,
     get_license_boundary,
     draw_license_boundary,
+    get_license_view_bounds,
     clip_quantiles,
     make_title,
     make_colorbar_label,
@@ -127,6 +128,21 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
                     if col.lower() == cl:
                         resolved_color_field = col
                         break
+
+        # Авто-определение поля для раскраски геофизических слоёв
+        if resolved_color_field is None:
+            resolved_color_field = entry.get("default_color_field")
+            if resolved_color_field is not None and resolved_color_field not in gdf.columns:
+                resolved_color_field = None
+        if resolved_color_field is None and units:
+            # Геофизический слой с единицами → берём первое числовое нон-системное поле
+            numeric_cols = [
+                c for c in gdf.columns
+                if c.lower() not in _SKIP_FIELDS and c != "geometry"
+                and np.issubdtype(gdf[c].dtype, np.number)
+            ]
+            if numeric_cols:
+                resolved_color_field = numeric_cols[0]
 
         # Colormap
         resolved_cmap = colormap if colormap != "auto" else auto_colormap(
@@ -246,6 +262,10 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
         if show_license:
             lic_gdf = get_license_boundary(pid, store)
             draw_license_boundary(ax, lic_gdf)
+            view_bounds = get_license_view_bounds(lic_gdf)
+            if view_bounds:
+                ax.set_xlim(view_bounds[0], view_bounds[2])
+                ax.set_ylim(view_bounds[1], view_bounds[3])
             if lic_gdf is not None:
                 ax.legend(loc="upper right", fontsize=8)
 

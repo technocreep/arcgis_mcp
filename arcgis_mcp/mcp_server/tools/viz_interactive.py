@@ -16,6 +16,7 @@ from ..project_store import ProjectStore
 from .viz_utils import (
     load_and_reproject,
     get_license_boundary,
+    get_license_view_bounds,
     auto_tooltip_fields,
     upload_to_minio,
     DEFAULT_STYLES,
@@ -133,9 +134,16 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
         if not loaded:
             return json.dumps({"error": "Ни один слой не загружен."}, ensure_ascii=False)
 
+        # Контур лицензии — определяет центр и zoom карты
+        lic_gdf = get_license_boundary(pid, store)
+        lic_view_bounds = get_license_view_bounds(lic_gdf)
+
         # Определяем центр карты
         if center_coords and len(center_coords) == 2:
             map_center = center_coords
+        elif lic_gdf is not None and not lic_gdf.empty:
+            b = lic_gdf.total_bounds
+            map_center = [float((b[1] + b[3]) / 2), float((b[0] + b[2]) / 2)]
         else:
             import numpy as np
             all_bounds = [gdf.total_bounds for gdf in loaded.values()]
@@ -147,8 +155,12 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
 
         m = folium.Map(location=map_center, zoom_start=zoom, tiles="CartoDB positron")
 
+        # Подогнать карту по границам лицензии
+        if lic_view_bounds:
+            minx, miny, maxx, maxy = lic_view_bounds
+            m.fit_bounds([[miny, minx], [maxy, maxx]])
+
         # Контур лицензии
-        lic_gdf = get_license_boundary(pid, store)
         if lic_gdf is not None and not lic_gdf.empty:
             lic_group = folium.FeatureGroup(name="Контур лицензии", show=True)
             folium.GeoJson(
