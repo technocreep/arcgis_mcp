@@ -4,6 +4,8 @@
     uvicorn ingestion.app:app --reload
 """
 
+import json
+import math
 import shutil
 import zipfile
 import os
@@ -14,7 +16,7 @@ import tempfile
 import secrets
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -79,11 +81,26 @@ async def list_projects():
     """Список доступных проектов."""
     return {"projects": [p.__dict__ for p in store.list_projects()]}
 
+def _sanitize(obj):
+    """Заменить NaN/Inf на None — стандартный JSON не поддерживает эти значения."""
+    if isinstance(obj, float) and (math.isnan(obj) or math.isinf(obj)):
+        return None
+    if isinstance(obj, dict):
+        return {k: _sanitize(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_sanitize(i) for i in obj]
+    return obj
+
+
 @app.get("/api/projects/{project_id}")
 async def get_project(project_id: str):
     """Получить манифест проекта."""
     try:
-        return store.get_manifest(project_id)
+        data = store.get_manifest(project_id)
+        return Response(
+            content=json.dumps(_sanitize(data), ensure_ascii=False),
+            media_type="application/json",
+        )
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Project not found")
 
