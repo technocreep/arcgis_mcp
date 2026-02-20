@@ -26,6 +26,7 @@ from .viz_utils import (
     clip_quantiles,
     make_colorbar_label,
     auto_colormap,
+    get_semantic_style,
     save_figure,
     upload_to_minio,
     DEFAULT_STYLES,
@@ -127,16 +128,19 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
 
             gt = gdf.geometry.geom_type.mode().iloc[0] if len(gdf) > 0 else "Point"
             gt_key = gt if gt in DEFAULT_STYLES else "Point"
-            default_style = DEFAULT_STYLES.get(gt_key, {})
 
-            # Параметры из spec или дефолтные
-            color     = spec.get("color",     default_style.get("color", "steelblue"))
-            alpha     = spec.get("alpha",     default_style.get("alpha", 0.85))
-            linewidth = spec.get("linewidth", default_style.get("linewidth", 1.0))
-            linestyle = spec.get("linestyle", "-")
-            markersize= spec.get("markersize", default_style.get("markersize", 10))
-            marker    = spec.get("marker", "o")
-            edgecolor = spec.get("edgecolor", default_style.get("edgecolor", "none"))
+            # Семантический стиль имеет приоритет над геометрическим дефолтом
+            semantic = get_semantic_style(resolved_id, display_name, entry.get("feature_dataset"))
+            base = semantic or DEFAULT_STYLES.get(gt_key, {})
+
+            # Параметры из spec перезаписывают base (agent override)
+            color     = spec.get("color",     base.get("color", "steelblue"))
+            alpha     = spec.get("alpha",     base.get("alpha", 0.85))
+            linewidth = spec.get("linewidth", base.get("linewidth", 1.0))
+            linestyle = spec.get("linestyle", base.get("linestyle", "-"))
+            markersize= spec.get("markersize", base.get("markersize", 10))
+            marker    = spec.get("marker",    base.get("marker", "o"))
+            edgecolor = spec.get("edgecolor", base.get("edgecolor", "none"))
 
             gt_lower = gt.lower()
 

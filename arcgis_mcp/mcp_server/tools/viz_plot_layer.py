@@ -26,6 +26,7 @@ from .viz_utils import (
     make_title,
     make_colorbar_label,
     auto_colormap,
+    get_semantic_style,
     save_figure,
     field_stats,
     upload_to_minio,
@@ -245,16 +246,34 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
                           title=resolved_color_field, title_fontsize=8)
 
         else:
-            # Без поля — единый цвет
+            # Без поля — единый цвет (семантический стиль или дефолт)
+            sem = get_semantic_style(resolved_id, display_name, entry.get("feature_dataset"))
+            fallback_color = (sem or {}).get(
+                "color",
+                "steelblue" if is_line else ("steelblue" if is_point else "lightblue"),
+            )
             if is_point:
-                ax.scatter(gdf.geometry.x, gdf.geometry.y,
-                           c="steelblue",
-                           s=4 if len(gdf) > 10_000 else 20,
-                           alpha=0.85, linewidths=0)
+                ax.scatter(
+                    gdf.geometry.x, gdf.geometry.y,
+                    c=fallback_color,
+                    marker=(sem or {}).get("marker", "o"),
+                    s=(sem or {}).get("markersize", 4 if len(gdf) > 10_000 else 20),
+                    alpha=0.85, linewidths=0,
+                )
             elif is_line:
-                gdf.plot(ax=ax, color="steelblue", linewidth=0.8, alpha=0.85)
+                gdf.plot(
+                    ax=ax, color=fallback_color,
+                    linewidth=(sem or {}).get("linewidth", 0.8),
+                    linestyle=(sem or {}).get("linestyle", "-"),
+                    alpha=(sem or {}).get("alpha", 0.85),
+                )
             else:
-                gdf.plot(ax=ax, color="lightblue", edgecolor="gray", linewidth=0.3, alpha=0.75)
+                gdf.plot(
+                    ax=ax, color=fallback_color,
+                    edgecolor=(sem or {}).get("edgecolor", "gray"),
+                    linewidth=0.3,
+                    alpha=(sem or {}).get("alpha", 0.75),
+                )
 
         # ----------------------------------------------------------------
         # Контур лицензии

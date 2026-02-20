@@ -303,17 +303,85 @@ def upload_to_minio(local_path: str, project_id: str) -> str | None:
 
 
 # ---------------------------------------------------------------------------
-# DEFAULT_STYLES для plot_overlay
+# DEFAULT_STYLES для plot_overlay (геометрический фолбэк)
 # ---------------------------------------------------------------------------
 
 DEFAULT_STYLES: dict[str, dict] = {
-    "Point":           {"color": "red",       "markersize": 10},
-    "MultiPoint":      {"color": "red",       "markersize": 10},
+    "Point":           {"color": "steelblue", "markersize": 8},
+    "MultiPoint":      {"color": "steelblue", "markersize": 8},
     "LineString":      {"color": "steelblue", "linewidth": 1},
     "MultiLineString": {"color": "steelblue", "linewidth": 1},
     "Polygon":         {"color": "lightblue", "edgecolor": "gray", "alpha": 0.4},
     "MultiPolygon":    {"color": "lightblue", "edgecolor": "gray", "alpha": 0.4},
 }
+
+
+# ---------------------------------------------------------------------------
+# Семантические стили — детерминированные цвета по типу слоя
+# ---------------------------------------------------------------------------
+# Формат: (layer_patterns, fd_patterns, style_dict)
+# layer_patterns проверяются (substring, case-insensitive) в layer_id + display_name.
+# fd_patterns проверяются в feature_dataset; пустой список = без ограничения по fd.
+# Порядок важен — первый совпавший выигрывает.
+# ---------------------------------------------------------------------------
+
+_SEMANTIC_STYLE_RULES: list[tuple[list[str], list[str], dict]] = [
+    # ----- Топооснова -----
+    (["river", "реки"],                              [],           {"color": "#4488FF", "linewidth": 0.8, "alpha": 0.9}),
+    (["lake", "озёр", "озер"],                       [],           {"color": "#87CEEB", "edgecolor": "#4488FF", "alpha": 0.5}),
+    (["road", "дорог"],                              [],           {"color": "#888888", "linewidth": 0.5, "alpha": 0.8}),
+    (["town", "насел", "settlement", "город"],       [],           {"color": "#8B4513", "markersize": 6}),
+    (["relief", "горизонт", "contour", "рельеф"],    [],           {"color": "#A0785A", "linewidth": 0.4, "alpha": 0.7}),
+    (["rama", "ramka", "frame", "рамк"],             [],           {"color": "#AAAAAA", "linewidth": 0.3, "alpha": 0.5}),
+    (["obl_p", "border", "boundary", "адм"],         [],           {"color": "#666666", "linewidth": 0.6, "linestyle": "--"}),
+    (["gridsheet", "grid"],                          ["grid"],     {"color": "#CCCCCC", "edgecolor": "#AAAAAA", "alpha": 0.3, "linewidth": 0.3}),
+    # ----- Геофизика — изолинии -----
+    (["izol", "изол", "n_pole", "нормальн"],         [],           {"color": "#BBBBBB", "linewidth": 0.3, "alpha": 0.6}),
+    # ----- Геофизика — линеаменты -----
+    (["lin", "lineament", "линеам"],                 [],           {"color": "#00BB44", "linewidth": 1.0}),
+    # ----- Геофизика — экстремумы -----
+    (["extr_pol", "положит"],                        [],           {"color": "#CC0000", "marker": "^", "markersize": 8}),
+    (["extr_otr", "отрицат"],                        [],           {"color": "#0055CC", "marker": "v", "markersize": 8}),
+    # ----- Геология — тектоника / разломы -----
+    (["tect", "fault", "разлом", "разрывн", "наруш", "надвиг", "шарьяж"], ["geology"],
+                                                                   {"color": "#1A1A1A", "linewidth": 1.2}),
+    # ----- Геология — рудные точки -----
+    (["drud", "ore", "руд", "пи"],                   [],           {"color": "#FFD700", "marker": "D", "markersize": 10, "edgecolor": "#333333"}),
+    # ----- Геохимия / ореолы -----
+    (["вторичн", "ореол"],                           ["geochem"],  {"color": "#FFB347", "edgecolor": "#CC7700", "alpha": 0.5}),
+    # ----- Геология — полигоны (базовая геология, минерагения) -----
+    (["geol", "геол", "basea", "mrana", "chema"],    ["geology"],  {"color": "#B8E8A0", "edgecolor": "#4A7A30", "alpha": 0.5}),
+    # ----- Поисковые профили -----
+    (["профил", "profile"],                          [],           {"color": "#FF8C00", "linewidth": 0.7}),
+    # ----- Шурфы -----
+    (["шурф"],                                       [],           {"color": "#8B4513", "marker": "s", "markersize": 7}),
+    # ----- Скважины -----
+    (["скважин", "well", "borehole"],                [],           {"color": "#FFD700", "marker": "o", "markersize": 8, "edgecolor": "#333333"}),
+    # ----- Канавы / траншеи -----
+    (["канав", "trench"],                            [],           {"color": "#8B4513", "linewidth": 1.0}),
+    # ----- Изученность -----
+    (["изучен", "izuch", "opmar", "survey"],         ["study"],    {"color": "#90EE90", "edgecolor": "#228B22", "alpha": 0.35}),
+]
+
+
+def get_semantic_style(
+    layer_id: str,
+    display_name: str,
+    feature_dataset: str | None = None,
+) -> dict | None:
+    """Вернуть детерминированный стиль по семантике слоя.
+
+    Возвращает dict со стилем (color, linewidth, marker, ...) или None если нет совпадения.
+    Агент или пользователь могут переопределить любое поле явно в spec.
+    """
+    search = f"{layer_id} {display_name}".lower()
+    fd_lower = (feature_dataset or "").lower()
+    for layer_patterns, fd_patterns, style in _SEMANTIC_STYLE_RULES:
+        layer_match = any(p in search for p in layer_patterns)
+        fd_match = (not fd_patterns) or any(p in fd_lower for p in fd_patterns)
+        if layer_match and fd_match:
+            return style
+    return None
 
 
 # ---------------------------------------------------------------------------
