@@ -68,6 +68,12 @@ store = ProjectStore(PROJECTS_DIR)
 async def root():
     return FileResponse(static_dir / "index.html")
 
+@app.get("/api/auth")
+async def verify_auth(user: str = Depends(require_auth)):
+    """Проверить учётные данные (используется фронтендом при логине)."""
+    return {"ok": True, "user": user}
+
+
 @app.get("/api/projects")
 async def list_projects():
     """Список доступных проектов."""

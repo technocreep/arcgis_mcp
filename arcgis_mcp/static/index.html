@@ -11,10 +11,77 @@
         [v-cloak] { display: none; }
         .fade-enter-active, .fade-leave-active { transition: opacity 0.3s; }
         .fade-enter-from, .fade-leave-to { opacity: 0; }
+
+        /* JSON Tree */
+        .json-tree { font-family: 'Menlo', 'Monaco', 'Consolas', monospace; font-size: 13px; line-height: 1.6; }
+        .json-node { position: relative; }
+        .json-toggle { cursor: pointer; user-select: none; display: inline-flex; align-items: center; gap: 3px; }
+        .json-toggle:hover .json-key { text-decoration: underline; }
+        .json-children { border-left: 2px solid #e2e8f0; margin-left: 8px; padding-left: 12px; }
+        .json-key   { color: #6d28d9; font-weight: 500; }
+        .json-str   { color: #15803d; }
+        .json-num   { color: #1d4ed8; }
+        .json-bool  { color: #ea580c; font-weight: 700; }
+        .json-null  { color: #94a3b8; font-style: italic; }
+        .json-meta  { color: #94a3b8; font-size: 11px; }
+        .json-arrow { color: #94a3b8; font-size: 10px; width: 10px; display: inline-block; }
     </style>
 </head>
 <body class="bg-slate-50 text-slate-800">
-    <div id="app" v-cloak class="min-h-screen flex flex-col">
+<div id="app" v-cloak class="min-h-screen flex flex-col">
+
+    <!-- ═══════════════════════════════════════════════
+         LOGIN SCREEN
+    ═══════════════════════════════════════════════ -->
+    <div v-if="!isAuthenticated" class="fixed inset-0 bg-slate-900 flex items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+            <!-- Logo bar -->
+            <div class="bg-blue-600 px-6 py-5 flex items-center gap-3">
+                <div class="bg-white/20 text-white p-2 rounded-lg">
+                    <i class="fa-solid fa-layer-group text-xl"></i>
+                </div>
+                <div>
+                    <h1 class="text-white font-bold text-lg leading-tight">GIS Agent</h1>
+                    <p class="text-blue-200 text-xs">Ingestion Portal</p>
+                </div>
+            </div>
+
+            <form @submit.prevent="signIn" class="p-6 space-y-4">
+                <p class="text-sm text-slate-500">Sign in to manage GIS projects.</p>
+
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Username</label>
+                    <input v-model="loginForm.user" type="text" autocomplete="username" autofocus required
+                        :disabled="loginLoading"
+                        class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all disabled:opacity-60">
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Password</label>
+                    <input v-model="loginForm.pass" type="password" autocomplete="current-password" required
+                        :disabled="loginLoading"
+                        class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all disabled:opacity-60">
+                </div>
+
+                <div v-if="loginError" class="bg-red-50 text-red-700 px-3 py-2 rounded-lg text-sm flex items-center gap-2">
+                    <i class="fa-solid fa-circle-exclamation"></i> {{ loginError }}
+                </div>
+
+                <button type="submit" :disabled="loginLoading"
+                    class="w-full py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white rounded-lg font-medium transition-colors flex items-center justify-center gap-2">
+                    <i v-if="loginLoading" class="fa-solid fa-circle-notch fa-spin"></i>
+                    <i v-else class="fa-solid fa-right-to-bracket"></i>
+                    {{ loginLoading ? 'Signing in...' : 'Sign In' }}
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════
+         MAIN APP (only shown when authenticated)
+    ═══════════════════════════════════════════════ -->
+    <template v-if="isAuthenticated">
+
         <!-- Header -->
         <header class="bg-white shadow-sm border-b border-slate-200">
             <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
@@ -24,11 +91,13 @@
                     </div>
                     <h1 class="text-xl font-bold text-slate-900">GIS Agent <span class="text-blue-600">Ingestion</span></h1>
                 </div>
-                <div class="flex items-center gap-2">
-                    <button @click="openAuthModal" :title="authHeader ? 'Credentials set: ' + authUser : 'Set credentials'"
-                        :class="authHeader ? 'text-green-600 hover:text-green-800' : 'text-amber-500 hover:text-amber-700'"
-                        class="p-2 rounded-md transition-colors">
-                        <i :class="authHeader ? 'fa-solid fa-lock' : 'fa-solid fa-lock-open'" class="text-lg"></i>
+                <div class="flex items-center gap-3">
+                    <span class="text-sm text-slate-500 hidden sm:block">
+                        <i class="fa-solid fa-user mr-1 text-slate-400"></i>{{ authUser }}
+                    </span>
+                    <button @click="openAuthModal" title="Change credentials"
+                        class="text-green-600 hover:text-green-800 p-2 rounded-md transition-colors">
+                        <i class="fa-solid fa-lock text-lg"></i>
                     </button>
                     <button @click="showUploadModal = true" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2">
                         <i class="fa-solid fa-plus"></i> Upload Project
@@ -39,7 +108,7 @@
 
         <!-- Main Content -->
         <main class="flex-grow max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full">
-            
+
             <!-- Loading State -->
             <div v-if="loading" class="flex justify-center py-12">
                 <i class="fa-solid fa-circle-notch fa-spin text-3xl text-blue-500"></i>
@@ -54,16 +123,17 @@
 
             <!-- Projects Grid -->
             <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                <div v-for="project in projects" :key="project.id" class="bg-white rounded-xl shadow-sm border border-slate-200 hover:shadow-md transition-shadow overflow-hidden flex flex-col">
+                <div v-for="project in projects" :key="project.id"
+                    class="bg-white rounded-xl shadow-sm border border-slate-200 hover:shadow-md transition-shadow overflow-hidden flex flex-col">
                     <div class="p-5 flex-grow">
                         <div class="flex justify-between items-start mb-2">
                             <h3 class="text-lg font-semibold text-slate-900 truncate" :title="project.name">{{ project.name || project.id }}</h3>
-                            <span class="text-xs font-mono bg-slate-100 text-slate-600 px-2 py-1 rounded">{{ project.id }}</span>
+                            <span class="text-xs font-mono bg-slate-100 text-slate-600 px-2 py-1 rounded shrink-0 ml-2">{{ project.id }}</span>
                         </div>
                         <div class="text-sm text-slate-500 mb-4">
                             <i class="fa-regular fa-clock mr-1"></i> {{ formatDate(project.created_at) }}
                         </div>
-                        
+
                         <div class="grid grid-cols-2 gap-4 mb-4">
                             <div class="bg-slate-50 p-3 rounded-lg">
                                 <div class="text-xs text-slate-500 uppercase font-bold">Layers</div>
@@ -78,9 +148,11 @@
                         </div>
                     </div>
                     <div class="bg-slate-50 px-5 py-3 border-t border-slate-100 flex justify-between items-center">
-                        <a :href="`/api/projects/${project.id}`" target="_blank" class="text-sm text-blue-600 hover:text-blue-800 font-medium">
-                            View Manifest <i class="fa-solid fa-arrow-up-right-from-square ml-1"></i>
-                        </a>
+                        <!-- Observe button -->
+                        <button @click="openObserve(project)"
+                            class="text-sm text-violet-600 hover:text-violet-800 font-medium flex items-center gap-1.5 transition-colors">
+                            <i class="fa-solid fa-sitemap"></i> Observe
+                        </button>
                         <button @click="deleteProject(project.id)" class="text-slate-400 hover:text-red-600 transition-colors">
                             <i class="fa-regular fa-trash-can"></i>
                         </button>
@@ -89,17 +161,16 @@
             </div>
         </main>
 
-        <!-- Auth Modal -->
+        <!-- ── Change Credentials Modal ── -->
         <div v-if="showAuthModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
             <div class="bg-white rounded-xl shadow-xl max-w-sm w-full overflow-hidden">
                 <div class="px-6 py-4 border-b border-slate-100 flex justify-between items-center">
-                    <h3 class="text-lg font-semibold text-slate-900">API Credentials</h3>
+                    <h3 class="text-lg font-semibold text-slate-900">Change Credentials</h3>
                     <button @click="showAuthModal = false" class="text-slate-400 hover:text-slate-600">
                         <i class="fa-solid fa-xmark text-xl"></i>
                     </button>
                 </div>
                 <div class="p-6 space-y-4">
-                    <p class="text-sm text-slate-500">Credentials are stored in your browser's localStorage and sent with upload/delete requests.</p>
                     <div>
                         <label class="block text-sm font-medium text-slate-700 mb-1">Username</label>
                         <input v-model="authDraft.user" type="text" autocomplete="username"
@@ -110,15 +181,22 @@
                         <input v-model="authDraft.pass" type="password" autocomplete="current-password"
                             class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all">
                     </div>
+                    <div v-if="authModalError" class="bg-red-50 text-red-700 px-3 py-2 rounded-lg text-sm flex items-center gap-2">
+                        <i class="fa-solid fa-circle-exclamation"></i> {{ authModalError }}
+                    </div>
                     <div class="flex justify-end gap-3 pt-2">
                         <button type="button" @click="showAuthModal = false" class="px-4 py-2 text-slate-700 hover:bg-slate-100 rounded-lg text-sm font-medium transition-colors">Cancel</button>
-                        <button type="button" @click="saveCredentials" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors shadow-sm">Save</button>
+                        <button type="button" @click="saveCredentials" :disabled="authModalLoading"
+                            class="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white rounded-lg text-sm font-medium transition-colors shadow-sm flex items-center gap-2">
+                            <i v-if="authModalLoading" class="fa-solid fa-circle-notch fa-spin"></i>
+                            Save
+                        </button>
                     </div>
                 </div>
             </div>
         </div>
 
-        <!-- Upload Modal -->
+        <!-- ── Upload Modal ── -->
         <div v-if="showUploadModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
             <div class="bg-white rounded-xl shadow-xl max-w-lg w-full overflow-hidden">
                 <div class="px-6 py-4 border-b border-slate-100 flex justify-between items-center">
@@ -127,12 +205,12 @@
                         <i class="fa-solid fa-xmark text-xl"></i>
                     </button>
                 </div>
-                
+
                 <form @submit.prevent="uploadProject" class="p-6 space-y-4">
                     <!-- Project ID -->
                     <div>
                         <label class="block text-sm font-medium text-slate-700 mb-1">Project ID (Slug)</label>
-                        <input v-model="form.id" type="text" required pattern="[a-z0-9-_]+" placeholder="e.g. lekyn-talbey" 
+                        <input v-model="form.id" type="text" required pattern="[a-z0-9-_]+" placeholder="e.g. lekyn-talbey"
                             class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all">
                         <p class="text-xs text-slate-500 mt-1">Only lowercase letters, numbers, hyphens.</p>
                     </div>
@@ -140,7 +218,7 @@
                     <!-- GDB File -->
                     <div>
                         <label class="block text-sm font-medium text-slate-700 mb-1">Geodatabase (.gdb as .zip) <span class="text-red-500">*</span></label>
-                        <input ref="gdbInput" type="file" accept=".zip" required 
+                        <input ref="gdbInput" type="file" accept=".zip" required
                             class="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100">
                     </div>
 
@@ -187,169 +265,470 @@
                 </form>
             </div>
         </div>
-    </div>
 
-    <script>
-        const { createApp, ref, computed, onMounted } = Vue
+        <!-- ── Observe Modal ── -->
+        <div v-if="showObserveModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div class="bg-white rounded-xl shadow-xl w-full max-w-4xl flex flex-col" style="max-height: 90vh;">
+                <!-- Header -->
+                <div class="px-6 py-4 border-b border-slate-100 flex justify-between items-center shrink-0">
+                    <div class="flex items-center gap-2">
+                        <i class="fa-solid fa-sitemap text-violet-600"></i>
+                        <h3 class="text-lg font-semibold text-slate-900">
+                            Observe: <span class="text-violet-700">{{ observeProject && (observeProject.name || observeProject.id) }}</span>
+                        </h3>
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <!-- Expand / Collapse all -->
+                        <button v-if="observeData" @click="treeExpandAll" title="Expand all"
+                            class="text-xs text-slate-500 hover:text-slate-800 px-2 py-1 rounded hover:bg-slate-100 transition-colors">
+                            <i class="fa-solid fa-angles-down mr-1"></i>Expand all
+                        </button>
+                        <button v-if="observeData" @click="treeCollapseAll" title="Collapse all"
+                            class="text-xs text-slate-500 hover:text-slate-800 px-2 py-1 rounded hover:bg-slate-100 transition-colors">
+                            <i class="fa-solid fa-angles-up mr-1"></i>Collapse
+                        </button>
+                        <button @click="showObserveModal = false" class="text-slate-400 hover:text-slate-600 ml-1">
+                            <i class="fa-solid fa-xmark text-xl"></i>
+                        </button>
+                    </div>
+                </div>
 
-        createApp({
-            setup() {
-                const projects = ref([])
-                const loading = ref(true)
-                const showUploadModal = ref(false)
-                const showAuthModal = ref(false)
-                const uploading = ref(false)
-                const error = ref(null)
+                <!-- Body -->
+                <div class="flex-grow overflow-y-auto p-6 bg-slate-50 rounded-b-xl">
+                    <!-- Loading -->
+                    <div v-if="observeLoading" class="flex justify-center py-12">
+                        <i class="fa-solid fa-circle-notch fa-spin text-2xl text-violet-500"></i>
+                    </div>
+                    <!-- Tree container -->
+                    <div v-else ref="treeContainer" class="json-tree"></div>
+                </div>
+            </div>
+        </div>
 
-                const form = ref({ id: '' })
-                const gdbInput = ref(null)
-                const aprxInput = ref(null)
-                const atbxInput = ref(null)
+    </template>
+</div>
 
-                // Credentials — persisted in localStorage
-                const authUser = ref(localStorage.getItem('gis_auth_user') || 'admin')
-                const authPass = ref(localStorage.getItem('gis_auth_pass') || '')
-                const authDraft = ref({ user: '', pass: '' })
+<script>
+const { createApp, ref, computed, onMounted, nextTick, watch } = Vue
 
-                const authHeader = computed(() => {
-                    if (!authUser.value || !authPass.value) return null
-                    return 'Basic ' + btoa(authUser.value + ':' + authPass.value)
-                })
+// ═══════════════════════════════════════════════
+// JSON Tree renderer (pure DOM, no framework)
+// ═══════════════════════════════════════════════
 
-                const saveCredentials = () => {
+function makeBasicHeader(str) {
+    return 'Basic ' + btoa(str)
+}
+
+function buildJsonNode(key, value, depth, defaultExpanded) {
+    const isRoot = key === null
+    const isObj = value !== null && typeof value === 'object' && !Array.isArray(value)
+    const isArr = Array.isArray(value)
+    const isExpandable = isObj || isArr
+
+    const wrapper = document.createElement('div')
+    wrapper.className = 'json-node'
+
+    if (isExpandable) {
+        const childKeys = isObj ? Object.keys(value) : value.map((_, i) => i)
+        const count = childKeys.length
+        const bracket = isArr ? ['[', ']'] : ['{', '}']
+        const expanded = { value: defaultExpanded }
+
+        // Toggle row
+        const row = document.createElement('div')
+        row.className = 'json-toggle py-0.5'
+
+        const arrow = document.createElement('span')
+        arrow.className = 'json-arrow'
+        arrow.textContent = expanded.value ? '▼' : '▶'
+        row.appendChild(arrow)
+
+        if (!isRoot) {
+            const keySpan = document.createElement('span')
+            keySpan.className = 'json-key'
+            keySpan.textContent = JSON.stringify(key)
+            row.appendChild(keySpan)
+
+            const colon = document.createElement('span')
+            colon.className = 'text-slate-400'
+            colon.textContent = ': '
+            row.appendChild(colon)
+        }
+
+        const openBracket = document.createElement('span')
+        openBracket.className = 'text-slate-500 font-mono'
+        openBracket.textContent = bracket[0]
+        row.appendChild(openBracket)
+
+        const preview = document.createElement('span')
+        preview.className = 'json-meta ml-1'
+        preview.textContent = expanded.value
+            ? ''
+            : (isArr ? `${count} items` : `${count} keys`)
+        row.appendChild(preview)
+
+        wrapper.appendChild(row)
+
+        // Children container
+        const children = document.createElement('div')
+        children.className = 'json-children'
+        children.style.display = expanded.value ? 'block' : 'none'
+
+        childKeys.forEach((k) => {
+            const child = buildJsonNode(isArr ? null : k, isArr ? value[k] : value[k], depth + 1, depth < 1)
+            // For arrays, prepend index label
+            if (isArr && typeof value[k] === 'object' && value[k] !== null) {
+                const idxRow = document.createElement('div')
+                idxRow.className = 'text-slate-400 text-xs mb-0.5 mt-2 first:mt-0'
+                idxRow.textContent = `— [${k}]`
+                children.appendChild(idxRow)
+                children.appendChild(child)
+            } else {
+                const childWithKey = buildJsonNode(isArr ? k : k, value[isArr ? k : k], depth + 1, depth < 1)
+                children.appendChild(childWithKey)
+            }
+        })
+
+        // Rebuild to avoid duplication (remove the duplicate above)
+        children.innerHTML = ''
+        childKeys.forEach((k) => {
+            const v = isArr ? value[k] : value[k]
+            const childNode = buildJsonNode(isArr ? k : k, v, depth + 1, depth < 1)
+            children.appendChild(childNode)
+        })
+
+        const closeLine = document.createElement('div')
+        closeLine.className = 'text-slate-500 font-mono'
+        closeLine.textContent = bracket[1]
+
+        wrapper.appendChild(children)
+        wrapper.appendChild(closeLine)
+
+        // Toggle handler
+        row.addEventListener('click', () => {
+            expanded.value = !expanded.value
+            arrow.textContent = expanded.value ? '▼' : '▶'
+            children.style.display = expanded.value ? 'block' : 'none'
+            preview.textContent = expanded.value
+                ? ''
+                : (isArr ? `${count} items` : `${count} keys`)
+        })
+
+        // Store references for expand/collapse all
+        wrapper.dataset.expandable = 'true'
+        wrapper._toggleExpand = (forceExpand) => {
+            expanded.value = forceExpand
+            arrow.textContent = expanded.value ? '▼' : '▶'
+            children.style.display = expanded.value ? 'block' : 'none'
+            preview.textContent = expanded.value
+                ? ''
+                : (isArr ? `${count} items` : `${count} keys`)
+        }
+
+    } else {
+        // Leaf node
+        const row = document.createElement('div')
+        row.className = 'py-0.5 flex flex-wrap gap-1'
+
+        if (!isRoot && key !== null) {
+            const keySpan = document.createElement('span')
+            keySpan.className = 'json-key'
+            keySpan.textContent = JSON.stringify(key)
+            row.appendChild(keySpan)
+
+            const colon = document.createElement('span')
+            colon.className = 'text-slate-400'
+            colon.textContent = ': '
+            row.appendChild(colon)
+        }
+
+        const valSpan = document.createElement('span')
+        if (value === null) {
+            valSpan.className = 'json-null'
+            valSpan.textContent = 'null'
+        } else if (typeof value === 'boolean') {
+            valSpan.className = 'json-bool'
+            valSpan.textContent = String(value)
+        } else if (typeof value === 'number') {
+            valSpan.className = 'json-num'
+            valSpan.textContent = String(value)
+        } else {
+            valSpan.className = 'json-str'
+            // Truncate very long strings
+            const str = JSON.stringify(value)
+            valSpan.textContent = str.length > 200 ? str.slice(0, 200) + '…"' : str
+            valSpan.title = str.length > 200 ? value : ''
+        }
+        row.appendChild(valSpan)
+        wrapper.appendChild(row)
+    }
+
+    return wrapper
+}
+
+function renderJsonTree(container, data) {
+    container.innerHTML = ''
+    const root = buildJsonNode(null, data, 0, true)
+    container.appendChild(root)
+}
+
+function toggleAllNodes(container, expand) {
+    container.querySelectorAll('[data-expandable]').forEach(el => {
+        if (el._toggleExpand) el._toggleExpand(expand)
+    })
+}
+
+// ═══════════════════════════════════════════════
+// Vue App
+// ═══════════════════════════════════════════════
+
+createApp({
+    setup() {
+        // ── Auth state ──
+        const isAuthenticated = ref(false)
+        const authUser = ref(localStorage.getItem('gis_auth_user') || '')
+        const authPass = ref(localStorage.getItem('gis_auth_pass') || '')
+
+        const authHeader = computed(() => {
+            if (!authUser.value || !authPass.value) return null
+            return 'Basic ' + btoa(authUser.value + ':' + authPass.value)
+        })
+
+        // ── Login form ──
+        const loginForm = ref({ user: '', pass: '' })
+        const loginLoading = ref(false)
+        const loginError = ref(null)
+
+        const signIn = async () => {
+            loginLoading.value = true
+            loginError.value = null
+            const header = 'Basic ' + btoa(loginForm.value.user + ':' + loginForm.value.pass)
+            try {
+                const res = await fetch('/api/auth', { headers: { Authorization: header } })
+                if (res.ok) {
+                    authUser.value = loginForm.value.user
+                    authPass.value = loginForm.value.pass
+                    localStorage.setItem('gis_auth_user', authUser.value)
+                    localStorage.setItem('gis_auth_pass', authPass.value)
+                    isAuthenticated.value = true
+                    fetchProjects()
+                } else {
+                    loginError.value = 'Invalid username or password.'
+                }
+            } catch {
+                loginError.value = 'Server unreachable.'
+            } finally {
+                loginLoading.value = false
+            }
+        }
+
+        // ── Change credentials modal ──
+        const showAuthModal = ref(false)
+        const authDraft = ref({ user: '', pass: '' })
+        const authModalError = ref(null)
+        const authModalLoading = ref(false)
+
+        const openAuthModal = () => {
+            authDraft.value = { user: authUser.value, pass: authPass.value }
+            authModalError.value = null
+            showAuthModal.value = true
+        }
+
+        const saveCredentials = async () => {
+            authModalLoading.value = true
+            authModalError.value = null
+            const header = 'Basic ' + btoa(authDraft.value.user + ':' + authDraft.value.pass)
+            try {
+                const res = await fetch('/api/auth', { headers: { Authorization: header } })
+                if (res.ok) {
                     authUser.value = authDraft.value.user
                     authPass.value = authDraft.value.pass
                     localStorage.setItem('gis_auth_user', authUser.value)
                     localStorage.setItem('gis_auth_pass', authPass.value)
                     showAuthModal.value = false
+                } else {
+                    authModalError.value = 'Invalid credentials.'
                 }
+            } catch {
+                authModalError.value = 'Server unreachable.'
+            } finally {
+                authModalLoading.value = false
+            }
+        }
 
-                const openAuthModal = () => {
-                    authDraft.value = { user: authUser.value, pass: authPass.value }
-                    showAuthModal.value = true
-                }
+        // ── Projects ──
+        const projects = ref([])
+        const loading = ref(true)
+        const showUploadModal = ref(false)
+        const uploading = ref(false)
+        const error = ref(null)
 
-                const fetchProjects = async () => {
-                    loading.value = true
-                    try {
-                        const res = await fetch('/api/projects')
-                        const data = await res.json()
-                        projects.value = data.projects
-                    } catch (e) {
-                        console.error(e)
-                    } finally {
-                        loading.value = false
-                    }
-                }
+        const form = ref({ id: '' })
+        const gdbInput = ref(null)
+        const aprxInput = ref(null)
+        const atbxInput = ref(null)
 
-                const uploadProject = async () => {
-                    if (!authHeader.value) {
-                        error.value = 'Please set credentials first (lock icon in the header).'
-                        return
-                    }
-                    uploading.value = true
-                    error.value = null
+        const fetchProjects = async () => {
+            loading.value = true
+            try {
+                const res = await fetch('/api/projects')
+                const data = await res.json()
+                projects.value = data.projects
+            } catch (e) {
+                console.error(e)
+            } finally {
+                loading.value = false
+            }
+        }
 
-                    const formData = new FormData()
-                    formData.append('project_id', form.value.id)
+        const uploadProject = async () => {
+            uploading.value = true
+            error.value = null
 
-                    if (gdbInput.value?.files[0]) {
-                        formData.append('gdb_zip', gdbInput.value.files[0])
-                    }
-                    if (aprxInput.value?.files[0]) {
-                        formData.append('aprx', aprxInput.value.files[0])
-                    }
-                    if (atbxInput.value?.files[0]) {
-                        formData.append('atbx', atbxInput.value.files[0])
-                    }
+            const formData = new FormData()
+            formData.append('project_id', form.value.id)
+            if (gdbInput.value?.files[0]) formData.append('gdb_zip', gdbInput.value.files[0])
+            if (aprxInput.value?.files[0]) formData.append('aprx', aprxInput.value.files[0])
+            if (atbxInput.value?.files[0]) formData.append('atbx', atbxInput.value.files[0])
 
-                    try {
-                        const res = await fetch('/api/upload', {
-                            method: 'POST',
-                            headers: { 'Authorization': authHeader.value },
-                            body: formData
-                        })
-
-                        if (res.status === 401) {
-                            throw new Error('Invalid credentials. Check username/password (lock icon).')
-                        }
-                        if (!res.ok) {
-                            const err = await res.json().catch(() => ({}))
-                            throw new Error(err.detail || 'Upload failed')
-                        }
-
-                        showUploadModal.value = false
-                        form.value.id = ''
-                        if (gdbInput.value) gdbInput.value.value = ''
-                        if (aprxInput.value) aprxInput.value.value = ''
-                        if (atbxInput.value) atbxInput.value.value = ''
-                        await fetchProjects()
-
-                    } catch (e) {
-                        error.value = e.message
-                    } finally {
-                        uploading.value = false
-                    }
-                }
-
-                const deleteProject = async (id) => {
-                    if (!confirm(`Are you sure you want to delete project '${id}'?`)) return
-                    if (!authHeader.value) {
-                        alert('Please set credentials first (lock icon in the header).')
-                        return
-                    }
-
-                    try {
-                        const res = await fetch(`/api/projects/${id}`, {
-                            method: 'DELETE',
-                            headers: { 'Authorization': authHeader.value }
-                        })
-                        if (res.status === 401) {
-                            alert('Invalid credentials. Check username/password (lock icon).')
-                            return
-                        }
-                        if (res.ok) {
-                            await fetchProjects()
-                        }
-                    } catch (e) {
-                        alert('Failed to delete')
-                    }
-                }
-
-                const formatDate = (isoString) => {
-                    if (!isoString) return 'Unknown date'
-                    return new Date(isoString).toLocaleDateString(undefined, {
-                        year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
-                    })
-                }
-
-                onMounted(() => {
-                    fetchProjects()
+            try {
+                const res = await fetch('/api/upload', {
+                    method: 'POST',
+                    headers: { Authorization: authHeader.value },
+                    body: formData
                 })
+                if (res.status === 401) throw new Error('Invalid credentials. Please re-authenticate (lock icon).')
+                if (!res.ok) {
+                    const err = await res.json().catch(() => ({}))
+                    throw new Error(err.detail || 'Upload failed')
+                }
+                showUploadModal.value = false
+                form.value.id = ''
+                if (gdbInput.value) gdbInput.value.value = ''
+                if (aprxInput.value) aprxInput.value.value = ''
+                if (atbxInput.value) atbxInput.value.value = ''
+                await fetchProjects()
+            } catch (e) {
+                error.value = e.message
+            } finally {
+                uploading.value = false
+            }
+        }
 
-                return {
-                    projects,
-                    loading,
-                    showUploadModal,
-                    showAuthModal,
-                    uploading,
-                    error,
-                    form,
-                    gdbInput,
-                    aprxInput,
-                    atbxInput,
-                    authUser,
-                    authPass,
-                    authDraft,
-                    authHeader,
-                    openAuthModal,
-                    saveCredentials,
-                    uploadProject,
-                    deleteProject,
-                    formatDate
+        const deleteProject = async (id) => {
+            if (!confirm(`Delete project '${id}'?`)) return
+            try {
+                const res = await fetch(`/api/projects/${id}`, {
+                    method: 'DELETE',
+                    headers: { Authorization: authHeader.value }
+                })
+                if (res.status === 401) { alert('Invalid credentials.'); return }
+                if (res.ok) await fetchProjects()
+            } catch { alert('Failed to delete') }
+        }
+
+        const formatDate = (isoString) => {
+            if (!isoString) return 'Unknown date'
+            return new Date(isoString).toLocaleDateString(undefined, {
+                year: 'numeric', month: 'short', day: 'numeric',
+                hour: '2-digit', minute: '2-digit'
+            })
+        }
+
+        // ── Observe ──
+        const showObserveModal = ref(false)
+        const observeData = ref(null)
+        const observeLoading = ref(false)
+        const observeProject = ref(null)
+        const treeContainer = ref(null)
+
+        const openObserve = async (project) => {
+            observeProject.value = project
+            observeData.value = null
+            observeLoading.value = true
+            showObserveModal.value = true
+            try {
+                const res = await fetch(`/api/projects/${project.id}`)
+                observeData.value = await res.json()
+            } finally {
+                observeLoading.value = false
+                await nextTick()
+                if (treeContainer.value && observeData.value) {
+                    renderJsonTree(treeContainer.value, observeData.value)
                 }
             }
-        }).mount('#app')
-    </script>
+        }
+
+        const treeExpandAll = () => {
+            if (treeContainer.value) toggleAllNodes(treeContainer.value, true)
+        }
+        const treeCollapseAll = () => {
+            if (treeContainer.value) toggleAllNodes(treeContainer.value, false)
+        }
+
+        // ── Boot ──
+        onMounted(async () => {
+            if (authUser.value && authPass.value) {
+                // Try to auto-authenticate with stored credentials
+                try {
+                    const res = await fetch('/api/auth', { headers: { Authorization: authHeader.value } })
+                    if (res.ok) {
+                        isAuthenticated.value = true
+                        fetchProjects()
+                        return
+                    }
+                } catch { /* fall through to login screen */ }
+                // Stored credentials are invalid — clear them
+                localStorage.removeItem('gis_auth_user')
+                localStorage.removeItem('gis_auth_pass')
+                authUser.value = ''
+                authPass.value = ''
+            }
+            // Show login screen
+            loading.value = false
+        })
+
+        return {
+            // auth
+            isAuthenticated,
+            authUser,
+            authHeader,
+            loginForm,
+            loginLoading,
+            loginError,
+            signIn,
+            showAuthModal,
+            authDraft,
+            authModalError,
+            authModalLoading,
+            openAuthModal,
+            saveCredentials,
+            // projects
+            projects,
+            loading,
+            showUploadModal,
+            uploading,
+            error,
+            form,
+            gdbInput,
+            aprxInput,
+            atbxInput,
+            fetchProjects,
+            uploadProject,
+            deleteProject,
+            formatDate,
+            // observe
+            showObserveModal,
+            observeData,
+            observeLoading,
+            observeProject,
+            treeContainer,
+            openObserve,
+            treeExpandAll,
+            treeCollapseAll,
+        }
+    }
+}).mount('#app')
+</script>
 </body>
 </html>
