@@ -25,7 +25,10 @@ from arcgis_mcp.mcp_server.tools.attachments import make_tools as make_attachmen
 from arcgis_mcp.mcp_server.tools.inventory import make_tools as make_inventory_tools
 from arcgis_mcp.mcp_server.tools.izuchennost import make_tools as make_izuch_tools
 from arcgis_mcp.mcp_server.tools.query import make_tools as make_query_tools
-from arcgis_mcp.mcp_server.vis.tools import make_tools as make_vis_tools
+from arcgis_mcp.mcp_server.tools.viz_plot_layer import make_tools as make_plot_layer_tools
+from arcgis_mcp.mcp_server.tools.viz_plot_overlay import make_tools as make_plot_overlay_tools
+from arcgis_mcp.mcp_server.tools.viz_histogram import make_tools as make_plot_histogram_tools
+from arcgis_mcp.mcp_server.tools.viz_interactive import make_tools as make_plot_interactive_tools
 
 # ---------------------------------------------------------------------------
 # Приложение
@@ -62,13 +65,16 @@ _inv = make_inventory_tools(store, _state)
 _qry = make_query_tools(store, _state)
 _izuch = make_izuch_tools(store, _state)
 _att = make_attachment_tools(store, _state)
-_vis = make_vis_tools(store, _state)
 
 list_projects_fn, get_project_summary_fn, list_layers_fn, describe_layer_fn = _inv
 query_features_fn, summarize_layer_fn = _qry
 (search_izuchennost_fn,) = _izuch
 list_attachments_fn, extract_attachment_fn = _att
-visualize_layer_fn, plot_statistics_fn, interpolate_field_fn = _vis
+
+(plot_layer_fn,) = make_plot_layer_tools(store, _state)
+(plot_overlay_fn,) = make_plot_overlay_tools(store, _state)
+(plot_histogram_fn,) = make_plot_histogram_tools(store, _state)
+(plot_interactive_fn,) = make_plot_interactive_tools(store, _state)
 
 
 def _parse(result: str) -> Any:
@@ -339,153 +345,184 @@ async def extract_attachment(req: ExtractAttachmentRequest):
 # Visualization
 # ---------------------------------------------------------------------------
 
-class VisualizeLayerRequest(BaseModel):
-    layer: str = Field(..., description="Название слоя (display_name, layer_id или alias)")
-    color_by: Optional[str] = Field(
+class PlotLayerRequest(BaseModel):
+    layer_id: str = Field(..., description="ID или display_name слоя из manifest")
+    project_id: Optional[str] = Field(None, description="ID проекта (необязательно, если уже выбран)")
+    color_field: Optional[str] = Field(
         None,
-        description="Поле для цветового кодирования. Числовые → colorbar viridis, "
-                    "категориальные → легенда tab20. Если не указано — авто-выбор.",
+        description="Поле для раскраски. Числовое → colorbar, категориальное → легенда. "
+                    "Если None — единый цвет.",
     )
-    title: Optional[str] = Field(None, description="Заголовок карты (авто, если не указан)")
-    overlay_layers: Optional[str] = Field(
-        None,
-        description=(
-            'JSON-список оверлеев поверх основного слоя. '
-            'Пример: \'[{"layer":"tect_lines","color":"black","linewidth":1.5},'
-            '{"layer":"ore_points","color":"gold","marker":"D"}]\''
-        ),
-    )
-    label_field: Optional[str] = Field(
-        None,
-        description="Поле для подписи объектов. Внимание: при >300 объектах подписи перекроются.",
-    )
-    output_dir: Optional[str] = Field(
-        None, description="Директория для сохранения PNG (по умолчанию: проект/vis_output/)"
-    )
-    project_id: Optional[str] = Field(
-        None, description="ID проекта (необязательно, если уже выбран)"
-    )
-
-
-@app.post(
-    "/visualize_layer",
-    operation_id="visualize_layer",
-    summary="Нарисовать слой на пространственной карте",
-    tags=["visualization"],
-)
-async def visualize_layer(req: VisualizeLayerRequest):
-    """Нарисовать один или несколько слоёв на пространственной карте и сохранить PNG.
-
-    Автоматически определяет тип геометрии (Point/Line/Polygon).
-    Раскраска по числовому полю → colorbar, по категориальному → легенда.
-    Через overlay_layers можно добавить дополнительные слои (тектоника, контур лицензии и т.д.).
-    Возвращает путь к сохранённому PNG-файлу.
-    """
-    return _parse(
-        visualize_layer_fn(
-            req.layer, req.color_by, req.title,
-            req.overlay_layers, req.label_field, req.output_dir, req.project_id,
-        )
-    )
-
-
-class PlotStatisticsRequest(BaseModel):
-    layer: str = Field(..., description="Название слоя (display_name, layer_id или alias)")
-    field: Optional[str] = Field(
-        None, description="Поле для анализа (авто-выбор первого числового, если не указано)"
-    )
-    chart_type: str = Field(
-        "histogram",
-        description=(
-            "Тип диаграммы: "
-            '"histogram" — распределение числового поля; '
-            '"bar" — top-20 значений категориального поля; '
-            '"pie" — круговая диаграмма; '
-            '"scatter" — scatter-plot (требует field2); '
-            '"profile" — значения поля по пространственной оси (field2="lat" или "lon").'
-        ),
-    )
-    field2: Optional[str] = Field(
-        None,
-        description='Второй аргумент: для scatter — Y-ось, для profile — "lat" или "lon".',
-    )
-    group_by: Optional[str] = Field(
-        None, description='Для bar/pie: группировать по этому полю вместо field.'
-    )
-    limit: int = Field(2000, ge=1, le=50000, description="Максимум объектов для загрузки (по умолчанию 2000)")
-    title: Optional[str] = Field(None, description="Заголовок (авто, если не указан)")
-    output_dir: Optional[str] = Field(None, description="Директория сохранения PNG")
-    project_id: Optional[str] = Field(
-        None, description="ID проекта (необязательно, если уже выбран)"
-    )
-
-
-@app.post(
-    "/plot_statistics",
-    operation_id="plot_statistics",
-    summary="Построить атрибутивный график по полю слоя",
-    tags=["visualization"],
-)
-async def plot_statistics(req: PlotStatisticsRequest):
-    """Универсальный атрибутивный график для поля слоя.
-
-    Поддерживает: histogram, bar, pie, scatter (корреляция двух полей),
-    profile (значения вдоль широты или долготы).
-    Возвращает путь к сохранённому PNG-файлу.
-    """
-    return _parse(
-        plot_statistics_fn(
-            req.layer, req.field, req.chart_type, req.field2,
-            req.group_by, req.limit, req.title, req.output_dir, req.project_id,
-        )
-    )
-
-
-class InterpolateFieldRequest(BaseModel):
-    layer: str = Field(..., description="Точечный слой (display_name, layer_id или alias)")
-    value_field: str = Field(
-        ...,
-        description='Числовое поле для интерполяции. Пример: "ID_123" (ΔG), "дельта_T" (ΔT).',
-    )
-    method: str = Field(
-        "linear",
-        description='Метод scipy.griddata: "linear" (по умолчанию), "nearest", "cubic".',
+    style: str = Field(
+        "auto",
+        description='"auto" | "points" | "lines" | "polygons". Auto определяет по geometry_type.',
     )
     colormap: str = Field(
-        "RdYlBu_r",
-        description='Matplotlib colormap. Рекомендации: "RdYlBu_r" (ΔG), "RdBu_r" (ΔT), "hot_r" (градиенты).',
+        "auto",
+        description='Matplotlib colormap или "auto" (мГал→RdYlBu_r, нТл→RdBu_r, высоты→terrain...).',
     )
-    grid_resolution: int = Field(
-        300, ge=50, le=1000,
-        description="Число ячеек по каждой оси (по умолчанию 300×300)",
+    show_license: bool = Field(True, description="Рисовать контур лицензионного участка")
+    bbox_wgs84: Optional[str] = Field(
+        None, description='Обрезать по bbox: "minx,miny,maxx,maxy" в WGS84. Если None — авто-extent.'
     )
-    overlay_layer: Optional[str] = Field(
+    title: Optional[str] = Field(None, description="Заголовок карты (авто, если None)")
+    output_format: str = Field("png", description='"png" или "svg"')
+
+
+@app.post(
+    "/plot_layer",
+    operation_id="plot_layer",
+    summary="Визуализировать один слой на статичной карте (PNG/SVG)",
+    tags=["visualization"],
+)
+async def plot_layer(req: PlotLayerRequest):
+    """Главный инструмент визуализации: один слой на статичной карте.
+
+    Автоматически подбирает стиль рендеринга и colormap по единицам измерения из manifest.
+    Числовые поля → colorbar со срезом по квантилям; категориальные → легенда tab20.
+    Контур лицензии рисуется последним (show_license=True по умолчанию).
+    Возвращает путь к PNG-файлу и field_stats.
+    """
+    return _parse(
+        plot_layer_fn(
+            req.layer_id, req.project_id, req.color_field, req.style,
+            req.colormap, req.show_license, req.bbox_wgs84, req.title, req.output_format,
+        )
+    )
+
+
+class PlotOverlayRequest(BaseModel):
+    layers: str = Field(
+        ...,
+        description=(
+            'JSON-массив слоёв с параметрами стиля. '
+            'Пример: \'[{"layer_id":"relief","color":"brown","linewidth":0.2,"alpha":0.3},'
+            '{"layer_id":"Скважины_ГСК","color":"red","markersize":15}]\'. '
+            'Ключи: layer_id (обязательно), color, alpha, linewidth, linestyle, '
+            'markersize, marker, edgecolor, label.'
+        ),
+    )
+    project_id: Optional[str] = Field(None, description="ID проекта (необязательно, если уже выбран)")
+    show_license: bool = Field(True, description="Рисовать контур лицензии последним")
+    show_legend: bool = Field(True, description="Показывать легенду со списком слоёв")
+    title: Optional[str] = Field(None, description="Заголовок карты (авто, если None)")
+    output_format: str = Field("png", description='"png" или "svg"')
+
+
+@app.post(
+    "/plot_overlay",
+    operation_id="plot_overlay",
+    summary="Наложить несколько слоёв на одну карту (PNG/SVG)",
+    tags=["visualization"],
+)
+async def plot_overlay(req: PlotOverlayRequest):
+    """Сводная карта из нескольких слоёв: геология + тектоника + скважины + геофизика и т.д.
+
+    Первый слой в массиве = подложка, последний = поверх.
+    Контур лицензии рисуется после всех слоёв (zorder=10).
+    Возвращает путь к PNG-файлу и список отрисованных слоёв.
+    """
+    return _parse(
+        plot_overlay_fn(
+            req.layers, req.project_id, req.show_license, req.show_legend,
+            req.title, req.output_format,
+        )
+    )
+
+
+class PlotHistogramRequest(BaseModel):
+    layer_id: str = Field(..., description="ID или display_name слоя из manifest")
+    field: str = Field(..., description="Имя поля для анализа")
+    project_id: Optional[str] = Field(None, description="ID проекта (необязательно, если уже выбран)")
+    plot_type: str = Field(
+        "auto",
+        description=(
+            '"auto" — автоматически по dtype и числу уникальных значений; '
+            '"histogram" — гистограмма с линиями mean/median; '
+            '"bar" — горизонтальный барчарт; '
+            '"bar_top20" — top-20 значений; '
+            '"boxplot" — box-plot по группам (требует group_by).'
+        ),
+    )
+    group_by: Optional[str] = Field(
+        None, description='Поле группировки для boxplot и bar. Пример: "Участ".'
+    )
+    bins: int = Field(50, ge=5, le=500, description="Количество бинов для гистограммы")
+    title: Optional[str] = Field(None, description="Заголовок (авто, если None)")
+    output_format: str = Field("png", description='"png" или "svg"')
+
+
+@app.post(
+    "/plot_histogram",
+    operation_id="plot_histogram",
+    summary="Построить статистический график по полю слоя (PNG/SVG)",
+    tags=["visualization"],
+)
+async def plot_histogram(req: PlotHistogramRequest):
+    """Статистическая визуализация атрибутов слоя.
+
+    Автоматически выбирает тип графика: гистограмма для числовых полей,
+    bar-chart для категориальных, boxplot для группировки.
+    Возвращает путь к файлу и базовую статистику поля (field_stats).
+    """
+    return _parse(
+        plot_histogram_fn(
+            req.layer_id, req.field, req.project_id, req.plot_type,
+            req.group_by, req.bins, req.title, req.output_format,
+        )
+    )
+
+
+class PlotInteractiveRequest(BaseModel):
+    layers: str = Field(
+        ...,
+        description=(
+            'JSON-массив ID слоёв. Пример: \'["Скважины_ГСК","Канавы_ГСК","river"]\'. '
+            'Все слои автоматически конвертируются в WGS84.'
+        ),
+    )
+    project_id: Optional[str] = Field(None, description="ID проекта (необязательно, если уже выбран)")
+    tooltip_fields: Optional[str] = Field(
         None,
-        description="Опциональный векторный оверлей поверх растра (например: контур лицензии, тектоника).",
+        description=(
+            'JSON-словарь {layer_id: [field1, field2, ...]}. '
+            'Если None — поля выбираются автоматически из manifest. '
+            'Пример: \'{"Скважины_ГСК": ["Имя", "POINT_Z", "Участ"]}\''
+        ),
     )
-    title: Optional[str] = Field(None, description="Заголовок карты")
-    output_dir: Optional[str] = Field(None, description="Директория сохранения PNG")
-    project_id: Optional[str] = Field(
-        None, description="ID проекта (необязательно, если уже выбран)"
+    center: Optional[str] = Field(
+        None, description='Центр карты "[lat, lon]". None → авто-центр по данным.'
+    )
+    zoom: int = Field(10, ge=1, le=20, description="Начальный масштаб (по умолчанию 10)")
+    max_features_per_layer: int = Field(
+        500, ge=1, le=5000,
+        description="Максимум объектов на слой. Тяжёлые слои усекаются с предупреждением."
+    )
+    style_overrides: Optional[str] = Field(
+        None,
+        description=(
+            'JSON-словарь переопределения стилей {layer_id: {color, weight, ...}}. '
+            'Пример: \'{"river": {"color": "#4488ff", "weight": 1}}\''
+        ),
     )
 
 
 @app.post(
-    "/interpolate_field",
-    operation_id="interpolate_field",
-    summary="Интерполировать точечное поле в растровую карту",
+    "/plot_interactive",
+    operation_id="plot_interactive",
+    summary="Создать интерактивную HTML-карту (Folium) с переключением слоёв",
     tags=["visualization"],
 )
-async def interpolate_field(req: InterpolateFieldRequest):
-    """Пространственная интерполяция числового поля точечного слоя в растровую сетку.
+async def plot_interactive(req: PlotInteractiveRequest):
+    """Интерактивная карта (Folium) — навигация, tooltip'ы, переключение слоёв.
 
-    Применение: карты гравитационного/магнитного поля и их горизонтальных градиентов.
-    Использует scipy.interpolate.griddata (linear/nearest/cubic).
-    Возвращает путь к сохранённому PNG-файлу с полем stats (min/max/mean).
+    Оптимальна для небольших наборов данных (скважины, канавы, рудные точки).
+    Для тяжёлых слоёв (>500 объектов) возвращает предупреждение и усекает данные.
+    Возвращает путь к .html файлу.
     """
     return _parse(
-        interpolate_field_fn(
-            req.layer, req.value_field, req.method, req.colormap,
-            req.grid_resolution, req.overlay_layer, req.title, req.output_dir, req.project_id,
+        plot_interactive_fn(
+            req.layers, req.project_id, req.tooltip_fields, req.center,
+            req.zoom, req.max_features_per_layer, req.style_overrides,
         )
     )

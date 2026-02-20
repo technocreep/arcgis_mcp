@@ -30,7 +30,10 @@ from mcp_server.tools.attachments import make_tools as make_attachment_tools
 from mcp_server.tools.inventory import make_tools as make_inventory_tools
 from mcp_server.tools.izuchennost import make_tools as make_izuch_tools
 from mcp_server.tools.query import make_tools as make_query_tools
-from mcp_server.vis.tools import make_tools as make_vis_tools
+from mcp_server.tools.viz_plot_layer import make_tools as make_plot_layer_tools
+from mcp_server.tools.viz_plot_overlay import make_tools as make_plot_overlay_tools
+from mcp_server.tools.viz_histogram import make_tools as make_plot_histogram_tools
+from mcp_server.tools.viz_interactive import make_tools as make_plot_interactive_tools
 
 # ---------------------------------------------------------------------------
 # Инициализация
@@ -64,7 +67,10 @@ _all_tools = (
     + make_query_tools(store, _state)
     + make_izuch_tools(store, _state)
     + make_attachment_tools(store, _state)
-    + make_vis_tools(store, _state)
+    + make_plot_layer_tools(store, _state)
+    + make_plot_overlay_tools(store, _state)
+    + make_plot_histogram_tools(store, _state)
+    + make_plot_interactive_tools(store, _state)
 )
 
 for _tool_fn in _all_tools:
