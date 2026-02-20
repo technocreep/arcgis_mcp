@@ -20,6 +20,7 @@ from .viz_utils import (
     load_and_reproject,
     field_stats,
     save_figure,
+    upload_to_minio,
 )
 
 _SKIP_FIELDS = {"objectid", "fid", "shape_length", "shape_area", "globalid", "shape"}
@@ -192,9 +193,12 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
 
         safe_name = f"{resolved_id}_{resolved_field}_{resolved_type}_{int(time.time())}"
         out_path = save_figure(fig, pid, safe_name.replace("/", "_"), fmt=output_format)
+        url = upload_to_minio(out_path, pid)
 
         return json.dumps({
             "file": out_path,
+            "url": url,
+            "markdown": f"![{display_name} — {resolved_field}]({url})" if url else None,
             "layer": resolved_id,
             "display_name": display_name,
             "field": resolved_field,

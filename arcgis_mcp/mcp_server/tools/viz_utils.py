@@ -198,6 +198,80 @@ def save_figure(fig: plt.Figure, project_id: str, name: str, fmt: str = "png", d
 
 
 # ---------------------------------------------------------------------------
+# MinIO — загрузка файлов визуализации в объектное хранилище
+# ---------------------------------------------------------------------------
+
+_minio_client = None
+_bucket_ready: bool = False
+
+
+def _get_minio():
+    """Ленивый синглтон клиента MinIO. Возвращает None при недоступности."""
+    global _minio_client
+    if _minio_client is not None:
+        return _minio_client
+    try:
+        from arcgis_mcp.config import MINIO_ENDPOINT, MINIO_ACCESS_KEY, MINIO_SECRET_KEY
+        from minio import Minio
+        _minio_client = Minio(
+            MINIO_ENDPOINT,
+            access_key=MINIO_ACCESS_KEY,
+            secret_key=MINIO_SECRET_KEY,
+            secure=False,
+        )
+    except Exception:
+        return None
+    return _minio_client
+
+
+def _ensure_bucket() -> bool:
+    """Создать бакет и установить публичную политику чтения, если ещё не сделано."""
+    global _bucket_ready
+    if _bucket_ready:
+        return True
+    client = _get_minio()
+    if client is None:
+        return False
+    try:
+        import json as _json
+        from arcgis_mcp.config import MINIO_BUCKET
+        from minio.error import S3Error
+        if not client.bucket_exists(MINIO_BUCKET):
+            client.make_bucket(MINIO_BUCKET)
+        policy = _json.dumps({
+            "Version": "2012-10-17",
+            "Statement": [{
+                "Effect": "Allow",
+                "Principal": {"AWS": "*"},
+                "Action": "s3:GetObject",
+                "Resource": f"arn:aws:s3:::{MINIO_BUCKET}/*",
+            }],
+        })
+        client.set_bucket_policy(MINIO_BUCKET, policy)
+        _bucket_ready = True
+        return True
+    except Exception:
+        return False
+
+
+def upload_to_minio(local_path: str, project_id: str) -> str | None:
+    """Загрузить файл в MinIO и вернуть публичный URL. None при ошибке."""
+    if not _ensure_bucket():
+        return None
+    client = _get_minio()
+    if client is None:
+        return None
+    try:
+        from arcgis_mcp.config import MINIO_BUCKET, MINIO_PUBLIC_HOST
+        filename = Path(local_path).name
+        object_name = f"{project_id}/{filename}"
+        client.fput_object(MINIO_BUCKET, object_name, local_path)
+        return f"http://{MINIO_PUBLIC_HOST}/{MINIO_BUCKET}/{object_name}"
+    except Exception:
+        return None
+
+
+# ---------------------------------------------------------------------------
 # DEFAULT_STYLES для plot_overlay
 # ---------------------------------------------------------------------------
 

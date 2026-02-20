@@ -28,3 +28,12 @@ GDB_STATS_TOP_VALUES_LIMIT = 20      # топ-N категориальных з�
 # Версия pipeline
 PIPELINE_VERSION = "0.1"
 MANIFEST_VERSION = "1.0"
+
+# MinIO (объектное хранилище для выходных файлов визуализации)
+# MINIO_ENDPOINT     — адрес S3 API (внутри Docker)
+# MINIO_PUBLIC_HOST  — адрес, доступный снаружи (для URL в ответах инструментов)
+MINIO_ENDPOINT    = os.getenv("MINIO_ENDPOINT",    "212.41.21.72:9000")
+MINIO_PUBLIC_HOST = os.getenv("MINIO_PUBLIC_HOST", "212.41.21.72:9000")
+MINIO_ACCESS_KEY  = os.getenv("MINIO_ACCESS_KEY",  "minio")
+MINIO_SECRET_KEY  = os.getenv("MINIO_SECRET_KEY",  "minio123")
+MINIO_BUCKET      = os.getenv("MINIO_BUCKET",      "gis-viz")

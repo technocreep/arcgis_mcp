@@ -17,6 +17,7 @@ from .viz_utils import (
     load_and_reproject,
     get_license_boundary,
     auto_tooltip_fields,
+    upload_to_minio,
     DEFAULT_STYLES,
 )
 
@@ -234,8 +235,12 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
         out_path = viz_dir / f"interactive_{int(time.time())}.html"
         m.save(str(out_path))
 
+        url = upload_to_minio(str(out_path), pid)
+
         result: dict = {
             "file": str(out_path),
+            "url": url,
+            "link": f"[Открыть интерактивную карту]({url})" if url else None,
             "layers_rendered": list(loaded.keys()),
             "map_center": map_center,
             "zoom": zoom,

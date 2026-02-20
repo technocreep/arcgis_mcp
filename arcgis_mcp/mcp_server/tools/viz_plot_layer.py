@@ -27,6 +27,7 @@ from .viz_utils import (
     auto_colormap,
     save_figure,
     field_stats,
+    upload_to_minio,
 )
 
 _SKIP_FIELDS = {"objectid", "fid", "shape_length", "shape_area", "globalid", "shape"}
@@ -259,9 +260,12 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
         if resolved_color_field:
             safe_name += f"_{resolved_color_field}"
         out_path = save_figure(fig, pid, f"{safe_name}_{int(time.time())}", fmt=output_format)
+        url = upload_to_minio(out_path, pid)
 
         result: dict = {
             "file": out_path,
+            "url": url,
+            "markdown": f"![{display_name}]({url})" if url else None,
             "layer": resolved_id,
             "display_name": display_name,
             "feature_count": len(gdf),

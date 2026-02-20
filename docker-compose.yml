@@ -40,8 +40,10 @@ services:
     volumes:
       - projects:/app/projects            # читает те же проекты, что загрузил gis-loader
       - ./arcgis_mcp:/app/arcgis_mcp
+    env_file:
+      - .env
     environment:
-      - PROJECTS_DIR=/app/projects
+      - PROJECTS_DIR=/app/projects        # переопределяет значение из .env, если оно там есть
     restart: unless-stopped
     depends_on:
       - gis-loader

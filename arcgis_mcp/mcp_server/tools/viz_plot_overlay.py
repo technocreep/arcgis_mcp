@@ -25,6 +25,7 @@ from .viz_utils import (
     make_colorbar_label,
     auto_colormap,
     save_figure,
+    upload_to_minio,
     DEFAULT_STYLES,
 )
 
@@ -183,9 +184,12 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
 
         out_name = f"overlay_{int(time.time())}"
         out_path = save_figure(fig, pid, out_name, fmt=output_format)
+        url = upload_to_minio(out_path, pid)
 
         return json.dumps({
             "file": out_path,
+            "url": url,
+            "markdown": f"![Карта]({url})" if url else None,
             "layers_rendered": loaded_layers,
             "layers_requested": len(layer_specs),
         }, ensure_ascii=False, indent=2)
