@@ -24,9 +24,6 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
             )
         return pid
 
-    # -------------------------------------------------------------------
-    # list_projects
-    # -------------------------------------------------------------------
     def list_projects() -> str:
         """Показать список всех доступных GIS-проектов.
 
@@ -51,9 +48,6 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
             "hint": "Для работы с проектом вызови get_project_summary(project_id=...)"
         }, ensure_ascii=False, indent=2)
 
-    # -------------------------------------------------------------------
-    # get_project_summary
-    # -------------------------------------------------------------------
     def get_project_summary(project_id: str) -> str:
         """Получить сводку по проекту и установить его как текущий.
 
@@ -98,33 +92,30 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
                 "from_inferred": mapping_q.get("mapped_from_inferred", 0),
                 "needs_review":  mapping_q.get("needs_review", 0),
             },
-            "groups": list(groups.keys()),
+            "groups": {g: len(names) for g, names in groups_summary.items()},
             "has_attachments": attachments.get("total", 0) > 0,
             "attachments_count": attachments.get("total", 0),
             "crs": quality.get("primary_crs"),
             "has_3d_layers": quality.get("has_3d_layers", False),
             "metadata_completeness": quality.get("metadata_completeness"),
-            "layers_by_group": groups_summary,
             "status": f"✓ Проект '{project_id}' выбран как текущий",
         }
 
         if quality.get("warnings"):
             result["warnings"] = quality["warnings"][:5]   # не перегружать
 
-        return json.dumps(result, ensure_ascii=False, indent=2)
+        return json.dumps(result, ensure_ascii=False)
 
-    # -------------------------------------------------------------------
-    # list_layers
-    # -------------------------------------------------------------------
     def list_layers(
         group: str | None = None,
         include_needs_review: bool = True,
         project_id: str | None = None,
+        output_format: str = "compact",
     ) -> str:
         """Показать список слоёв проекта.
 
         Всегда возвращает display_name — человекочитаемое название слоя.
-        Для каждого слоя показывает: название, тип геометрии, количество объектов, группу.
+        По умолчанию возвращает компактный текст (экономит контекст).
 
         Args:
             group: Если указано — показать только слои этой группы
@@ -132,6 +123,8 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
                    Список групп: в get_project_summary().
             include_needs_review: Включить слои без расшифровки (по умолчанию True).
             project_id: ID проекта (необязательно, если уже выбран через get_project_summary).
+            output_format: "compact" (по умолчанию) — текст, сгруппированный по группам;
+                           "json" — полный JSON для отладки.
         """
         try:
             pid = _resolve_project(project_id)
@@ -175,19 +168,42 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
                 entry["units"] = l["units"]
             if l.get("needs_review"):
                 entry["needs_review"] = True
-                entry["note"] = "Нет расшифровки из проекта, название может быть неточным"
             result_layers.append(entry)
+
+        # Компактный текстовый формат (экономит контекст)
+        if output_format != "json":
+            from collections import defaultdict
+            by_group: dict[str, list[str]] = defaultdict(list)
+            ungrouped: list[str] = []
+            for entry in result_layers:
+                geom = entry.get("geometry_type") or "?"
+                line = f"  {entry['layer_id']}  {entry['display_name']}  [{geom}]"
+                if entry.get("needs_review"):
+                    line += "  ⚠"
+                grp = entry.get("group")
+                if grp:
+                    by_group[grp].append(line)
+                else:
+                    ungrouped.append(line)
+            lines = [
+                f"project={pid}  layers={len(result_layers)}",
+                "hint: describe_layer(layer=...) для деталей",
+            ]
+            for grp, entries in by_group.items():
+                lines.append(f"\n[{grp}]")
+                lines.extend(entries)
+            if ungrouped:
+                lines.append("\n[без группы]")
+                lines.extend(ungrouped)
+            return "\n".join(lines)
 
         return json.dumps({
             "project": pid,
             "layers_count": len(result_layers),
             "layers": result_layers,
             "hint": "Для деталей по слою: describe_layer(layer='display_name или layer_id')"
-        }, ensure_ascii=False, indent=2)
+        }, ensure_ascii=False)
 
-    # -------------------------------------------------------------------
-    # describe_layer
-    # -------------------------------------------------------------------
     def describe_layer(
         layer: str,
         project_id: str | None = None,

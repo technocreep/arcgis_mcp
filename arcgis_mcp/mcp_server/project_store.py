@@ -12,10 +12,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
-# ---------------------------------------------------------------------------
-# Dataclasses
-# ---------------------------------------------------------------------------
-
 @dataclass
 class ProjectSummary:
     id: str
@@ -26,20 +22,12 @@ class ProjectSummary:
     gdb_file: str | None
 
 
-# ---------------------------------------------------------------------------
-# ProjectStore
-# ---------------------------------------------------------------------------
-
 class ProjectStore:
     """Чтение данных проектов из файловой системы."""
 
     def __init__(self, projects_dir: str | Path):
         self.projects_dir = Path(projects_dir)
         self._index_path = self.projects_dir / "_index.json"
-
-    # -----------------------------------------------------------------------
-    # Проекты
-    # -----------------------------------------------------------------------
 
     def list_projects(self) -> list[ProjectSummary]:
         """Список всех проектов из _index.json."""
@@ -154,10 +142,6 @@ class ProjectStore:
             if layer["layer_id"] == layer_id:
                 return layer
         return None
-
-    # -----------------------------------------------------------------------
-    # Утилиты
-    # -----------------------------------------------------------------------
 
     def _project_dir(self, project_id: str) -> Path:
         return self.projects_dir / project_id

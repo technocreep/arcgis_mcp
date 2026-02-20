@@ -16,10 +16,6 @@ import numpy as np
 from ..project_store import ProjectStore
 
 
-# ---------------------------------------------------------------------------
-# Вспомогательные функции
-# ---------------------------------------------------------------------------
-
 def _safe_val(v: Any) -> Any:
     """Привести значение к JSON-сериализуемому типу."""
     if isinstance(v, float) and (np.isnan(v) or np.isinf(v)):
@@ -81,10 +77,6 @@ def _build_filter_mask(gdf: gpd.GeoDataFrame, filters: dict) -> Any:
     return mask
 
 
-# ---------------------------------------------------------------------------
-# make_tools
-# ---------------------------------------------------------------------------
-
 def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
 
     def _resolve_project(project_id: str | None) -> str:
@@ -106,9 +98,6 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
         entry = store.get_layer_entry(manifest, layer_id)
         return layer_id, entry or {}
 
-    # -------------------------------------------------------------------
-    # query_features
-    # -------------------------------------------------------------------
     def query_features(
         layer: str,
         filters: str | None = None,
@@ -193,9 +182,6 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
 
         return json.dumps(result, ensure_ascii=False, indent=2)
 
-    # -------------------------------------------------------------------
-    # summarize_layer
-    # -------------------------------------------------------------------
     def summarize_layer(
         layer: str,
         project_id: str | None = None,

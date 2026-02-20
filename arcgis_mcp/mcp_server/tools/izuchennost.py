@@ -45,9 +45,6 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
             )
         return pid
 
-    # -------------------------------------------------------------------
-    # search_izuchennost
-    # -------------------------------------------------------------------
     def search_izuchennost(
         query: str | None = None,
         year_from: int | None = None,

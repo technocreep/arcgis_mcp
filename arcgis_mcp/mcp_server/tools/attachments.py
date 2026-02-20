@@ -25,9 +25,6 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
             )
         return pid
 
-    # -------------------------------------------------------------------
-    # list_attachments
-    # -------------------------------------------------------------------
     def list_attachments(
         layer: str | None = None,
         project_id: str | None = None,
@@ -106,9 +103,6 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
             ),
         }, ensure_ascii=False, indent=2)
 
-    # -------------------------------------------------------------------
-    # extract_attachment
-    # -------------------------------------------------------------------
     def extract_attachment(
         table: str,
         index: int,

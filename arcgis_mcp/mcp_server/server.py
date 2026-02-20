@@ -19,7 +19,6 @@ import os
 import sys
 from pathlib import Path
 
-# Добавляем корень проекта в путь
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from fastmcp import FastMCP
@@ -35,9 +34,6 @@ from mcp_server.tools.viz_plot_overlay import make_tools as make_plot_overlay_to
 from mcp_server.tools.viz_histogram import make_tools as make_plot_histogram_tools
 from mcp_server.tools.viz_interactive import make_tools as make_plot_interactive_tools
 
-# ---------------------------------------------------------------------------
-# Инициализация
-# ---------------------------------------------------------------------------
 
 mcp = FastMCP(
     name="GIS Agent Service",
@@ -69,12 +65,9 @@ mcp = FastMCP(
 
 store = ProjectStore(str(PROJECTS_DIR))
 
-# Мутабельный контекст текущего проекта — разделяется всеми инструментами
+
 _state: dict = {"current_project_id": None}
 
-# ---------------------------------------------------------------------------
-# Регистрация инструментов
-# ---------------------------------------------------------------------------
 
 _all_tools = (
     make_inventory_tools(store, _state)
@@ -90,9 +83,6 @@ _all_tools = (
 for _tool_fn in _all_tools:
     mcp.add_tool(_tool_fn)
 
-# ---------------------------------------------------------------------------
-# Запуск
-# ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
     transport = os.getenv("MCP_TRANSPORT", "stdio")
@@ -101,7 +91,4 @@ if __name__ == "__main__":
     if transport == "stdio":
         mcp.run(transport="stdio")
     else:
-        # HTTP-режим для Open WebUI и других клиентов.
-        # FastMCP 3.0 поднимает streamable-http на /mcp
-        # Open WebUI подключается по: http://host:10002/mcp
         mcp.run(transport=transport, host="0.0.0.0", port=port)
