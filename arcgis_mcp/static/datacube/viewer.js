@@ -293,7 +293,6 @@ function renderV3() {
 
     const xStar = r['x*'] ?? r.x_star ?? r.threshold ?? null
     const metrics = [
-        // { label: 'PR-AUC', value: r.metrics.pr_auc != null ? r.metrics.pr_auc.toFixed(3) : 'N/A', icon: '◉', accent: 'emerald' },
         { 
             label: 'PR-AUC',
             value: r.metrics?.pr_auc != null
@@ -319,6 +318,44 @@ function renderV3() {
 }
 
 // ─── V9: Run Parameters ───────────────────────────────────────────────────────
+// function renderV9() {
+//     const meta = state.runMeta
+//     if (!Object.keys(meta).length) { showNA('v9'); return }
+
+//     const rows = Object.entries(meta).map(([k, v]) =>
+//         `<tr>
+//             <td class="meta-key">${k}</td>
+//             <td class="meta-val">${Array.isArray(v) ? v.join(', ') : String(v ?? '')}</td>
+//         </tr>`).join('')
+
+//     setBody('v9', `<table class="meta-table"><tbody>${rows}</tbody></table>`)
+// }
+function renderValue(v) {
+    if (v == null) return ''
+
+    if (Array.isArray(v)) {
+        if (v.every(x => typeof x !== 'object')) {
+            return v.join(', ')
+        }
+        return `
+            <details>
+                <summary>Array(${v.length})</summary>
+                <pre>${JSON.stringify(v, null, 2)}</pre>
+            </details>`
+    }
+
+    if (typeof v === 'object') {
+        return `
+            <details>
+                <summary>Object</summary>
+                <pre>${JSON.stringify(v, null, 2)}</pre>
+            </details>`
+    }
+
+    return String(v)
+}
+
+
 function renderV9() {
     const meta = state.runMeta
     if (!Object.keys(meta).length) { showNA('v9'); return }
@@ -326,8 +363,9 @@ function renderV9() {
     const rows = Object.entries(meta).map(([k, v]) =>
         `<tr>
             <td class="meta-key">${k}</td>
-            <td class="meta-val">${Array.isArray(v) ? v.join(', ') : String(v ?? '')}</td>
-        </tr>`).join('')
+            <td class="meta-val">${renderValue(v)}</td>
+        </tr>`
+    ).join('')
 
     setBody('v9', `<table class="meta-table"><tbody>${rows}</tbody></table>`)
 }
