@@ -1,0 +1,229 @@
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: #0f172a;
+    color: #cbd5e1;
+    margin: 0;
+}
+
+/* ── Cards ──────────────────────────────────────────────────────────────── */
+.block-card {
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+.block-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 16px;
+    background: #0f172a;
+    border-bottom: 1px solid #334155;
+    font-size: 13px;
+    font-weight: 600;
+    color: #cbd5e1;
+}
+
+.block-num {
+    font-size: 10px;
+    font-weight: 700;
+    background: #334155;
+    color: #94a3b8;
+    padding: 2px 6px;
+    border-radius: 4px;
+    letter-spacing: 0.05em;
+}
+
+.header-hint {
+    font-size: 11px;
+    font-weight: 400;
+    color: #64748b;
+    margin-left: auto;
+}
+
+.block-body {
+    padding: 16px;
+}
+
+/* ── Generic states ─────────────────────────────────────────────────────── */
+.loading {
+    text-align: center;
+    padding: 32px;
+    color: #64748b;
+    font-size: 13px;
+}
+
+.na-msg {
+    text-align: center;
+    padding: 32px;
+    color: #475569;
+    font-size: 13px;
+    font-style: italic;
+}
+
+/* ── Charts ─────────────────────────────────────────────────────────────── */
+.chart-wrap {
+    position: relative;
+    height: 240px;
+}
+
+.info-strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    margin-top: 8px;
+    font-size: 11px;
+    color: #64748b;
+}
+
+/* ── Metric cards (V3) ──────────────────────────────────────────────────── */
+.metric-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+}
+
+.metric-card {
+    background: #0f172a;
+    border: 1px solid #334155;
+    border-radius: 8px;
+    padding: 16px;
+    text-align: center;
+}
+
+.metric-icon {
+    font-size: 22px;
+    margin-bottom: 8px;
+}
+
+.metric-value {
+    font-size: 22px;
+    font-weight: 700;
+    color: #f1f5f9;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+}
+
+.metric-label {
+    font-size: 10px;
+    color: #64748b;
+    margin-top: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+
+.metric-card.accent-emerald .metric-icon { color: #34d399; }
+.metric-card.accent-blue    .metric-icon { color: #60a5fa; }
+.metric-card.accent-violet  .metric-icon { color: #a78bfa; }
+.metric-card.accent-amber   .metric-icon { color: #fbbf24; }
+
+/* ── Run meta table (V9) ────────────────────────────────────────────────── */
+.meta-table {
+    width: 100%;
+    font-size: 12px;
+    border-collapse: collapse;
+}
+
+.meta-key {
+    padding: 5px 12px 5px 0;
+    color: #64748b;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    white-space: nowrap;
+    vertical-align: top;
+    width: 40%;
+}
+
+.meta-val {
+    padding: 5px 0;
+    color: #cbd5e1;
+    word-break: break-all;
+}
+
+.meta-table tr + tr td {
+    border-top: 1px solid #1e293b;
+}
+
+/* ── Map canvas ─────────────────────────────────────────────────────────── */
+.map-canvas {
+    width: 100%;
+    height: auto;
+    display: block;
+    border-radius: 6px;
+    background: #0f172a;
+    cursor: default;
+}
+
+/* ── Map legend ─────────────────────────────────────────────────────────── */
+.map-legend {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 8px;
+    font-size: 11px;
+    color: #64748b;
+}
+
+.legend-bar {
+    flex: 1;
+    height: 8px;
+    border-radius: 4px;
+}
+
+/* ── Legend items ───────────────────────────────────────────────────────── */
+.legend-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.legend-item {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11px;
+    color: #94a3b8;
+}
+
+.legend-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    display: inline-block;
+    flex-shrink: 0;
+}
+
+/* ── ALE grid (V6) ──────────────────────────────────────────────────────── */
+.ale-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+}
+
+@media (max-width: 900px) {
+    .ale-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 500px) {
+    .ale-grid { grid-template-columns: 1fr; }
+}
+
+.ale-cell {
+    background: #0f172a;
+    border-radius: 6px;
+    padding: 8px;
+}
+
+.ale-title {
+    font-size: 10px;
+    color: #64748b;
+    margin-bottom: 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.ale-canvas-wrap {
+    position: relative;
+    height: 100px;
+}

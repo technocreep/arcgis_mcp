@@ -227,6 +227,7 @@ createApp({
 
         // ── Projects ──
         const projects = ref([])
+        const projectsCube = ref({})  // project_id -> boolean
         const loading = ref(true)
         const showUploadModal = ref(false)
         const uploading = ref(false)
@@ -237,12 +238,23 @@ createApp({
         const aprxInput = ref(null)
         const atbxInput = ref(null)
 
+        const checkDatacubeStatus = async (projectId) => {
+            try {
+                const r = await fetch(`/api/projects/${projectId}/datacube`)
+                if (r.ok) {
+                    const d = await r.json()
+                    projectsCube.value = { ...projectsCube.value, [projectId]: d.exists }
+                }
+            } catch { /* ignore */ }
+        }
+
         const fetchProjects = async () => {
             loading.value = true
             try {
                 const res = await fetch('/api/projects')
                 const data = await res.json()
                 projects.value = data.projects
+                data.projects.forEach(p => checkDatacubeStatus(p.id))
             } catch (e) {
                 console.error(e)
             } finally {
@@ -355,19 +367,19 @@ createApp({
         const dcPollInterval = ref(null)
 
         const dcDefaultForm = () => ({
-            step_m: 1000,
-            pad: 0.05,
-            fault_radius_m: 5000,
-            contact_radius_m: 5000,
-            top_fault_classes: 5,
-            fault_radii_m: '500,1000,2000',
-            contact_radii_m: '500,1000,2000',
-            pos_radius_m: 2000,
+            step_m: 500,
+            pad: 0.10,
+            fault_radius_m: 20000,
+            contact_radius_m: 20000,
+            top_fault_classes: 10,
+            fault_radii_m: NaN,
+            contact_radii_m: NaN,
+            pos_radius_m: 5000,
             neg_ratio: 5,
             seed: 42,
             model_type: 'catboost',
-            group_block_m: 20000,
-            splits: 5,
+            group_block_m: 50000,
+            splits: 3,
         })
         const dcForm = ref(dcDefaultForm())
 
@@ -456,8 +468,15 @@ createApp({
                     dataCubeError.value = data.error || null
                     clearInterval(dcPollInterval.value)
                     dcPollInterval.value = null
+                    if (data.status === 'done' && dataCubeProject.value) {
+                        checkDatacubeStatus(dataCubeProject.value.id)
+                    }
                 }
             } catch { /* ignore transient errors */ }
+        }
+
+        const openDataCubeViewer = (projectId) => {
+            window.open(`/ui/datacube/?project_id=${projectId}`, '_blank')
         }
 
         // ── Boot ──
@@ -533,6 +552,8 @@ createApp({
             openDataCube,
             closeDataCube,
             submitDataCube,
+            openDataCubeViewer,
+            projectsCube,
         }
     }
 }).mount('#app')

@@ -244,3 +244,56 @@ async def datacube_get_job(job_id: str):
         return Response(content=r.content, status_code=r.status_code, media_type="application/json")
     except httpx.ConnectError:
         raise HTTPException(status_code=503, detail="Data Cube service unavailable")
+
+
+# ---------------------------------------------------------------------------
+# Data Cube — артефакты (файлы результатов пайплайна)
+# ---------------------------------------------------------------------------
+
+def _find_dc_dir(project_path: Path) -> Path | None:
+    """Найти директорию с артефактами Data Cube (datacube/ или корень проекта)."""
+    dc_sub = project_path / "datacube"
+    if (dc_sub / "scores.csv").exists():
+        return dc_sub
+    if (project_path / "scores.csv").exists():
+        return project_path
+    return None
+
+
+@app.get("/api/projects/{project_id}/datacube")
+async def datacube_artifacts_status(project_id: str):
+    """Проверить наличие артефактов Data Cube для проекта."""
+    project_path = Path(PROJECTS_DIR) / project_id
+    if not project_path.exists():
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    dc_dir = _find_dc_dir(project_path)
+    if dc_dir is None:
+        return {"exists": False}
+
+    files = [str(f.relative_to(dc_dir)) for f in dc_dir.rglob("*") if f.is_file()]
+    return {"exists": True, "files": sorted(files)}
+
+
+@app.get("/api/projects/{project_id}/datacube/files/{file_path:path}")
+async def datacube_file_serve(project_id: str, file_path: str):
+    """Отдать файл артефактов Data Cube."""
+    project_path = Path(PROJECTS_DIR) / project_id
+    if not project_path.exists():
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    dc_dir = _find_dc_dir(project_path)
+    if dc_dir is None:
+        raise HTTPException(status_code=404, detail="No Data Cube artifacts found")
+
+    try:
+        target = (dc_dir / file_path).resolve()
+        if not str(target).startswith(str(dc_dir.resolve())):
+            raise HTTPException(status_code=403, detail="Forbidden")
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid path")
+
+    if not target.is_file():
+        raise HTTPException(status_code=404, detail="File not found")
+
+    return FileResponse(str(target))
