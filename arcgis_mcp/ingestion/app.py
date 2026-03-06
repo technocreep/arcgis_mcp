@@ -15,7 +15,8 @@ import tempfile
 
 import secrets
 
-from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
+import httpx
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
@@ -213,3 +214,33 @@ async def upload_project(
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+# ---------------------------------------------------------------------------
+# Data Cube — прокси к сервису data-cube
+# ---------------------------------------------------------------------------
+
+DATACUBE_URL = os.getenv("DATACUBE_URL", "http://data-cube-server:8000")
+
+
+@app.post("/api/datacube/jobs")
+async def datacube_create_job(request: Request):
+    """Запустить пайплайн Data Cube для проекта."""
+    body = await request.json()
+    try:
+        async with httpx.AsyncClient() as client:
+            r = await client.post(f"{DATACUBE_URL}/jobs", json=body, timeout=10)
+        return Response(content=r.content, status_code=r.status_code, media_type="application/json")
+    except httpx.ConnectError:
+        raise HTTPException(status_code=503, detail="Data Cube service unavailable")
+
+
+@app.get("/api/datacube/jobs/{job_id}")
+async def datacube_get_job(job_id: str):
+    """Получить статус и прогресс задачи Data Cube."""
+    try:
+        async with httpx.AsyncClient() as client:
+            r = await client.get(f"{DATACUBE_URL}/jobs/{job_id}", timeout=10)
+        return Response(content=r.content, status_code=r.status_code, media_type="application/json")
+    except httpx.ConnectError:
+        raise HTTPException(status_code=503, detail="Data Cube service unavailable")

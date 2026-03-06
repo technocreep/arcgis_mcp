@@ -1,0 +1,19 @@
+# Git and IDE
+.git/
+
+# Python cache
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+*.egg-info/
+.venv/
+
+# Secrets and env
+.env
+
+# Projects data (хранятся в volume, не в образе)
+projects/
+arcgis_mcp/projects/
+
+# OS
+.DS_Store

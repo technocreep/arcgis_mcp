@@ -21,6 +21,9 @@ services:
       - PROJECTS_DIR=/app/projects
       - GIS_USERNAME=${GIS_USERNAME:-admin}
       - GIS_PASSWORD=${GIS_PASSWORD:-secret}
+      - DATACUBE_URL=http://data-cube-server:8000
+    depends_on:
+      - data-cube
     restart: unless-stopped
 
   # ---------------------------------------------------------------------------
@@ -47,6 +50,21 @@ services:
     restart: unless-stopped
     depends_on:
       - gis-loader
+
+  data-cube:
+    build:
+      context: .
+      dockerfile: Dockerfile.datacube
+      args:
+        GITHUB_TOKEN: ${GITHUB_TOKEN}
+    container_name: data-cube-server
+    env-env_file:
+      - .env
+    volumes:
+      - projects:/app/projects
+    environment:
+      - PROJECTS_DIR=/app/projects
+    restart: unless-stopped
 
 volumes:
   projects:

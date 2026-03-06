@@ -335,6 +335,131 @@ createApp({
             if (treeContainer.value) toggleAllNodes(treeContainer.value, false)
         }
 
+        // ── Data Cube ──
+        const DC_STAGES = ['grid', 'features', 'qa', 'labels', 'training', 'evaluation', 'visualization']
+        const DC_STAGE_LABELS = {
+            grid: 'Building grid',
+            features: 'Computing features',
+            qa: 'Quality assurance',
+            labels: 'Assigning labels',
+            training: 'Training model',
+            evaluation: 'Evaluating model',
+            visualization: 'Generating maps',
+        }
+
+        const showDataCubeModal = ref(false)
+        const dataCubeProject = ref(null)
+        const dataCubeStatus = ref(null)   // null | 'running' | 'done' | 'failed'
+        const dataCubeStage = ref(null)
+        const dataCubeError = ref(null)
+        const dcPollInterval = ref(null)
+
+        const dcDefaultForm = () => ({
+            step_m: 1000,
+            pad: 0.05,
+            fault_radius_m: 5000,
+            contact_radius_m: 5000,
+            top_fault_classes: 5,
+            fault_radii_m: '500,1000,2000',
+            contact_radii_m: '500,1000,2000',
+            pos_radius_m: 2000,
+            neg_ratio: 5,
+            seed: 42,
+            model_type: 'catboost',
+            group_block_m: 20000,
+            splits: 5,
+        })
+        const dcForm = ref(dcDefaultForm())
+
+        const dataCubeStageIndex = computed(() => DC_STAGES.indexOf(dataCubeStage.value))
+
+        const dataCubeProgress = computed(() => {
+            if (dataCubeStatus.value === 'done') return 100
+            if (dataCubeStatus.value === 'failed') return dataCubeStageIndex.value >= 0
+                ? Math.round(((dataCubeStageIndex.value + 1) / DC_STAGES.length) * 100)
+                : 0
+            if (dataCubeStageIndex.value < 0) return 0
+            return Math.round(((dataCubeStageIndex.value + 1) / DC_STAGES.length) * 100)
+        })
+
+        const dataCubeProgressLabel = computed(() =>
+            dataCubeStage.value ? (DC_STAGE_LABELS[dataCubeStage.value] || dataCubeStage.value) : ''
+        )
+
+        const openDataCube = (project) => {
+            dataCubeProject.value = project
+            dataCubeStatus.value = null
+            dataCubeStage.value = null
+            dataCubeError.value = null
+            dcForm.value = dcDefaultForm()
+            showDataCubeModal.value = true
+        }
+
+        const closeDataCube = () => {
+            if (dcPollInterval.value) clearInterval(dcPollInterval.value)
+            dcPollInterval.value = null
+            showDataCubeModal.value = false
+        }
+
+        const parseRadii = (str) => str
+            ? str.split(',').map(s => parseFloat(s.trim())).filter(n => !isNaN(n))
+            : []
+
+        const submitDataCube = async () => {
+            dataCubeStatus.value = 'running'
+            dataCubeStage.value = 'grid'
+            dataCubeError.value = null
+
+            const payload = {
+                project_id: dataCubeProject.value.id,
+                step_m: dcForm.value.step_m,
+                pad: dcForm.value.pad,
+                fault_radius_m: dcForm.value.fault_radius_m,
+                contact_radius_m: dcForm.value.contact_radius_m,
+                top_fault_classes: dcForm.value.top_fault_classes,
+                fault_radii_m: parseRadii(dcForm.value.fault_radii_m),
+                contact_radii_m: parseRadii(dcForm.value.contact_radii_m),
+                pos_radius_m: dcForm.value.pos_radius_m,
+                neg_ratio: dcForm.value.neg_ratio,
+                seed: dcForm.value.seed,
+                model_type: dcForm.value.model_type,
+                group_block_m: dcForm.value.group_block_m,
+                splits: dcForm.value.splits,
+            }
+
+            try {
+                const res = await fetch('/api/datacube/jobs', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                })
+                if (!res.ok) {
+                    const err = await res.json().catch(() => ({}))
+                    throw new Error(err.detail || 'Failed to start job')
+                }
+                const { job_id } = await res.json()
+                dcPollInterval.value = setInterval(() => pollDataCube(job_id), 3000)
+            } catch (e) {
+                dataCubeStatus.value = 'failed'
+                dataCubeError.value = e.message
+            }
+        }
+
+        const pollDataCube = async (jobId) => {
+            try {
+                const res = await fetch(`/api/datacube/jobs/${jobId}`)
+                if (!res.ok) return
+                const data = await res.json()
+                dataCubeStage.value = data.stage || dataCubeStage.value
+                if (data.status === 'done' || data.status === 'failed') {
+                    dataCubeStatus.value = data.status
+                    dataCubeError.value = data.error || null
+                    clearInterval(dcPollInterval.value)
+                    dcPollInterval.value = null
+                }
+            } catch { /* ignore transient errors */ }
+        }
+
         // ── Boot ──
         onMounted(async () => {
             if (authUser.value && authPass.value) {
@@ -394,6 +519,20 @@ createApp({
             openObserve,
             treeExpandAll,
             treeCollapseAll,
+            // data cube
+            DC_STAGES,
+            showDataCubeModal,
+            dataCubeProject,
+            dataCubeStatus,
+            dataCubeStage,
+            dataCubeStageIndex,
+            dataCubeProgress,
+            dataCubeProgressLabel,
+            dataCubeError,
+            dcForm,
+            openDataCube,
+            closeDataCube,
+            submitDataCube,
         }
     }
 }).mount('#app')

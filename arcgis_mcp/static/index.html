@@ -130,11 +130,16 @@
                         </div>
                     </div>
                     <div class="bg-slate-50 px-5 py-3 border-t border-slate-100 flex justify-between items-center">
-                        <!-- Observe button -->
-                        <button @click="openObserve(project)"
-                            class="text-sm text-violet-600 hover:text-violet-800 font-medium flex items-center gap-1.5 transition-colors">
-                            <i class="fa-solid fa-sitemap"></i> Observe
-                        </button>
+                        <div class="flex items-center gap-3">
+                            <button @click="openObserve(project)"
+                                class="text-sm text-violet-600 hover:text-violet-800 font-medium flex items-center gap-1.5 transition-colors">
+                                <i class="fa-solid fa-sitemap"></i> Observe
+                            </button>
+                            <button @click="openDataCube(project)"
+                                class="text-sm text-emerald-600 hover:text-emerald-800 font-medium flex items-center gap-1.5 transition-colors">
+                                <i class="fa-solid fa-cube"></i> Data Cube
+                            </button>
+                        </div>
                         <button @click="deleteProject(project.id)" class="text-slate-400 hover:text-red-600 transition-colors">
                             <i class="fa-regular fa-trash-can"></i>
                         </button>
@@ -283,6 +288,180 @@
                     </div>
                     <!-- Tree container -->
                     <div v-else ref="treeContainer" class="json-tree"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ── Data Cube Modal ── -->
+        <div v-if="showDataCubeModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div class="bg-white rounded-xl shadow-xl w-full max-w-2xl flex flex-col" style="max-height: 90vh;">
+                <!-- Header -->
+                <div class="px-6 py-4 border-b border-slate-100 flex justify-between items-center shrink-0">
+                    <div class="flex items-center gap-2">
+                        <i class="fa-solid fa-cube text-emerald-600"></i>
+                        <h3 class="text-lg font-semibold text-slate-900">
+                            Data Cube: <span class="text-emerald-700">{{ dataCubeProject && (dataCubeProject.name || dataCubeProject.id) }}</span>
+                        </h3>
+                    </div>
+                    <button @click="closeDataCube" class="text-slate-400 hover:text-slate-600">
+                        <i class="fa-solid fa-xmark text-xl"></i>
+                    </button>
+                </div>
+
+                <!-- Body -->
+                <div class="flex-grow overflow-y-auto">
+
+                    <!-- Form state -->
+                    <form v-if="dataCubeStatus === null" @submit.prevent="submitDataCube" class="p-6 space-y-6">
+
+                        <!-- Grid -->
+                        <div>
+                            <h4 class="text-xs font-bold uppercase text-slate-500 mb-3 tracking-wider">Grid</h4>
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-slate-700 mb-1">Step (m) <span class="text-slate-400 font-normal">250–5000</span></label>
+                                    <input v-model.number="dcForm.step_m" type="number" min="250" max="5000" step="50"
+                                        class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none text-sm">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-slate-700 mb-1">Pad ratio <span class="text-slate-400 font-normal">0.0–0.3</span></label>
+                                    <input v-model.number="dcForm.pad" type="number" min="0" max="0.3" step="0.01"
+                                        class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none text-sm">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Features -->
+                        <div>
+                            <h4 class="text-xs font-bold uppercase text-slate-500 mb-3 tracking-wider">Features</h4>
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-slate-700 mb-1">Fault radius (m)</label>
+                                    <input v-model.number="dcForm.fault_radius_m" type="number" min="500" max="50000" step="500"
+                                        class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none text-sm">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-slate-700 mb-1">Contact radius (m)</label>
+                                    <input v-model.number="dcForm.contact_radius_m" type="number" min="500" max="50000" step="500"
+                                        class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none text-sm">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-slate-700 mb-1">Top fault classes <span class="text-slate-400 font-normal">1–20</span></label>
+                                    <input v-model.number="dcForm.top_fault_classes" type="number" min="1" max="20"
+                                        class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none text-sm">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-slate-700 mb-1">Fault radii multi-scale (m, через запятую)</label>
+                                    <input v-model="dcForm.fault_radii_m" type="text" placeholder="500,1000,2000"
+                                        class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none text-sm">
+                                </div>
+                                <div class="col-span-2">
+                                    <label class="block text-sm font-medium text-slate-700 mb-1">Contact radii multi-scale (m, через запятую)</label>
+                                    <input v-model="dcForm.contact_radii_m" type="text" placeholder="500,1000,2000"
+                                        class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none text-sm">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Labels -->
+                        <div>
+                            <h4 class="text-xs font-bold uppercase text-slate-500 mb-3 tracking-wider">Labels</h4>
+                            <div class="grid grid-cols-3 gap-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-slate-700 mb-1">Pos radius (m)</label>
+                                    <input v-model.number="dcForm.pos_radius_m" type="number" min="250" max="20000" step="250"
+                                        class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none text-sm">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-slate-700 mb-1">Neg ratio <span class="text-slate-400 font-normal">1–20</span></label>
+                                    <input v-model.number="dcForm.neg_ratio" type="number" min="1" max="20"
+                                        class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none text-sm">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-slate-700 mb-1">Seed</label>
+                                    <input v-model.number="dcForm.seed" type="number"
+                                        class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none text-sm">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Training -->
+                        <div>
+                            <h4 class="text-xs font-bold uppercase text-slate-500 mb-3 tracking-wider">Training</h4>
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-slate-700 mb-1">Model</label>
+                                    <select v-model="dcForm.model_type"
+                                        class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none text-sm bg-white">
+                                        <option value="catboost">CatBoost</option>
+                                        <option value="logreg">Logistic Regression</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-slate-700 mb-1">Group block (m)</label>
+                                    <input v-model.number="dcForm.group_block_m" type="number" min="1000" max="200000" step="1000"
+                                        class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none text-sm">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-slate-700 mb-1">CV splits <span class="text-slate-400 font-normal">2–10</span></label>
+                                    <input v-model.number="dcForm.splits" type="number" min="2" max="10"
+                                        class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none text-sm">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="flex justify-end gap-3 pt-2">
+                            <button type="button" @click="closeDataCube" class="px-4 py-2 text-slate-700 hover:bg-slate-100 rounded-lg text-sm font-medium transition-colors">Cancel</button>
+                            <button type="submit" class="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2">
+                                <i class="fa-solid fa-play"></i> Run Pipeline
+                            </button>
+                        </div>
+                    </form>
+
+                    <!-- Progress / Done / Failed state -->
+                    <div v-else class="p-6 space-y-6">
+                        <!-- Stage label -->
+                        <div class="flex items-center gap-3">
+                            <i v-if="dataCubeStatus === 'running'" class="fa-solid fa-circle-notch fa-spin text-emerald-500 text-xl"></i>
+                            <i v-else-if="dataCubeStatus === 'done'" class="fa-solid fa-circle-check text-emerald-500 text-xl"></i>
+                            <i v-else class="fa-solid fa-circle-exclamation text-red-500 text-xl"></i>
+                            <span class="text-slate-800 font-medium">
+                                <template v-if="dataCubeStatus === 'running'">Running: <span class="text-emerald-700">{{ dataCubeStage }}</span></template>
+                                <template v-else-if="dataCubeStatus === 'done'">Pipeline completed successfully</template>
+                                <template v-else>Pipeline failed</template>
+                            </span>
+                        </div>
+
+                        <!-- Progress bar -->
+                        <div>
+                            <div class="flex justify-between text-xs text-slate-500 mb-1">
+                                <span>{{ dataCubeProgressLabel }}</span>
+                                <span>{{ dataCubeProgress }}%</span>
+                            </div>
+                            <div class="w-full bg-slate-100 rounded-full h-3 overflow-hidden">
+                                <div class="h-3 rounded-full transition-all duration-500"
+                                    :class="dataCubeStatus === 'failed' ? 'bg-red-500' : 'bg-emerald-500'"
+                                    :style="{ width: dataCubeProgress + '%' }"></div>
+                            </div>
+                            <div class="flex justify-between mt-2">
+                                <span v-for="(s, i) in DC_STAGES" :key="s"
+                                    class="text-[10px] text-slate-400"
+                                    :class="dataCubeStageIndex >= i ? 'text-emerald-600 font-medium' : ''">
+                                    {{ s }}
+                                </span>
+                            </div>
+                        </div>
+
+                        <!-- Error -->
+                        <div v-if="dataCubeStatus === 'failed' && dataCubeError"
+                            class="bg-red-50 text-red-700 p-3 rounded-lg text-sm">
+                            {{ dataCubeError }}
+                        </div>
+
+                        <div class="flex justify-end">
+                            <button @click="closeDataCube" class="px-4 py-2 text-slate-700 hover:bg-slate-100 rounded-lg text-sm font-medium transition-colors">Close</button>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
