@@ -18,6 +18,7 @@ const state = {
     driverMap: new Map(),  // block_id -> dominant_group
     v1Rects: [],           // canvas hit-test rects [{id, x, y, w, h}]
     v1SelectedId: null,
+    v1View: { scale: 1, panX: 0, panY: 0 },  // zoom/pan transform
 }
 
 const charts = {}
@@ -139,7 +140,8 @@ async function loadAll() {
 }
 
 // ─── Canvas choropleth ────────────────────────────────────────────────────────
-function drawChoropleth(canvasId, tooltipId, colorFn, onClickBlock) {
+// view = { scale, panX, panY } — zoom/pan (optional, used for v1-canvas)
+function drawChoropleth(canvasId, tooltipId, colorFn, onClickBlock, view) {
     const canvas = document.getElementById(canvasId)
     if (!canvas || !state.blocks.length) return
 
@@ -193,8 +195,15 @@ function drawChoropleth(canvasId, tooltipId, colorFn, onClickBlock) {
     if (mapAspect > canvasAspect) { drawH = drawW / mapAspect; offY = (H - drawH) / 2 }
     else { drawW = drawH * mapAspect; offX = (W - drawW) / 2 }
 
-    const toX = x => offX + ((x - minX) / rangeX) * drawW
-    const toY = y => offY + ((maxY - y) / rangeY) * drawH
+    // Base coordinate mapping (north-up: larger y_m → top of canvas)
+    const baseToX = x => offX + ((x - minX) / rangeX) * drawW
+    const baseToY = y => offY + ((maxY - y) / rangeY) * drawH
+
+    // Apply zoom/pan around canvas centre
+    const sc = view?.scale || 1, px = view?.panX || 0, py = view?.panY || 0
+    const cx = W / 2, cy = H / 2
+    const toX = x => (baseToX(x) - cx) * sc + cx + px
+    const toY = y => (baseToY(y) - cy) * sc + cy + py
 
     const idCol = keys.find(k => k === 'block_id') || keys[0]
     const rects = []
@@ -239,9 +248,8 @@ function drawChoropleth(canvasId, tooltipId, colorFn, onClickBlock) {
             const my = (e.clientY - rect.top) * scl
             for (const br of rects) {
                 if (mx >= br.x && mx <= br.x + br.w && my >= br.y && my <= br.y + br.h) {
-                    // Re-draw to clear old highlight
                     state.v1SelectedId = br.id
-                    drawChoropleth(canvasId, tooltipId, colorFn, onClickBlock)
+                    drawChoropleth(canvasId, tooltipId, colorFn, onClickBlock, view)
                     onClickBlock(br.id)
                     break
                 }
@@ -251,6 +259,7 @@ function drawChoropleth(canvasId, tooltipId, colorFn, onClickBlock) {
         // Hover tooltip
         const tooltip = tooltipId ? document.getElementById(tooltipId) : null
         canvas.onmousemove = (e) => {
+            if (view?._dragging) return
             const rect = canvas.getBoundingClientRect()
             const scl = canvas.width / rect.width
             const mx = (e.clientX - rect.left) * scl
@@ -263,7 +272,6 @@ function drawChoropleth(canvasId, tooltipId, colorFn, onClickBlock) {
                 if (found) {
                     const score = state.scoreMap.get(found.id)
                     tooltip.innerHTML = `<b>${found.id}</b><br>Score: ${score != null ? Number(score).toFixed(3) : '—'}`
-                    // Position relative to canvas container
                     const cRect = canvas.parentElement.getBoundingClientRect()
                     tooltip.style.left = (e.clientX - cRect.left + 12) + 'px'
                     tooltip.style.top  = (e.clientY - cRect.top  + 12) + 'px'
@@ -271,7 +279,7 @@ function drawChoropleth(canvasId, tooltipId, colorFn, onClickBlock) {
                     canvas.style.cursor = 'pointer'
                 } else {
                     tooltip.style.display = 'none'
-                    canvas.style.cursor = 'crosshair'
+                    canvas.style.cursor = sc > 1 ? 'grab' : 'crosshair'
                 }
             }
         }
@@ -342,7 +350,7 @@ function renderV9() {
     setBody('v9', `<table class="meta-table"><tbody>${rows}</tbody></table>`)
 }
 
-// ─── V1: Prospectivity Score Map (canvas) ────────────────────────────────────
+// ─── V1: Prospectivity Score Map (canvas, zoomable) ──────────────────────────
 function renderV1() {
     if (!state.blocks.length) { showNA('v1', 'No blocks.csv data'); return }
     const scoreVals = [...state.scoreMap.values()].filter(v => v != null).map(Number)
@@ -351,13 +359,80 @@ function renderV1() {
     const minS = Math.min(...scoreVals), maxS = Math.max(...scoreVals)
     const range = (maxS - minS) || 1
 
-    drawChoropleth('v1-canvas', 'v1-tooltip', (bid) => {
+    const colorFn = (bid) => {
         const s = state.scoreMap.get(bid)
         return s != null ? viridis((Number(s) - minS) / range) : '#e2e8f0'
-    }, (bid) => {
-        renderV7(bid)
-        document.getElementById('v7-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    })
+    }
+    const clickFn = (bid) => { renderV7(bid) }
+
+    const v = state.v1View
+    drawChoropleth('v1-canvas', 'v1-tooltip', colorFn, clickFn, v)
+
+    // ── Zoom / pan ────────────────────────────────────────────────────────────
+    const canvas = document.getElementById('v1-canvas')
+    if (!canvas || canvas._zoomBound) {
+        // handlers already attached on first render — just update legend and return
+    } else {
+        canvas._zoomBound = true
+
+        function redraw() {
+            drawChoropleth('v1-canvas', 'v1-tooltip', colorFn, clickFn, state.v1View)
+        }
+
+        // Wheel → zoom around cursor
+        canvas.addEventListener('wheel', (e) => {
+            e.preventDefault()
+            const zf = e.deltaY < 0 ? 1.25 : 1 / 1.25
+            const rect = canvas.getBoundingClientRect()
+            const scl = canvas.width / rect.width
+            const mx = (e.clientX - rect.left) * scl
+            const my = (e.clientY - rect.top) * scl
+            const cxc = canvas.width / 2, cyc = canvas.height / 2
+            const newScale = Math.max(1, Math.min(16, state.v1View.scale * zf))
+            const af = newScale / state.v1View.scale
+            state.v1View.panX = (mx - cxc) * (1 - af) + state.v1View.panX * af
+            state.v1View.panY = (my - cyc) * (1 - af) + state.v1View.panY * af
+            state.v1View.scale = newScale
+            if (newScale === 1) { state.v1View.panX = 0; state.v1View.panY = 0 }
+            redraw()
+        }, { passive: false })
+
+        // Drag → pan (only when zoomed in)
+        let dragStart = null
+        canvas.addEventListener('mousedown', (e) => {
+            if (state.v1View.scale > 1) {
+                dragStart = { x: e.clientX, y: e.clientY, px: state.v1View.panX, py: state.v1View.panY }
+                state.v1View._dragging = false
+                canvas.style.cursor = 'grabbing'
+            }
+        })
+        window.addEventListener('mousemove', (e) => {
+            if (!dragStart) return
+            const rect = canvas.getBoundingClientRect()
+            const scl = canvas.width / rect.width
+            const dx = (e.clientX - dragStart.x) * scl
+            const dy = (e.clientY - dragStart.y) * scl
+            if (Math.abs(dx) > 3 || Math.abs(dy) > 3) state.v1View._dragging = true
+            state.v1View.panX = dragStart.px + dx
+            state.v1View.panY = dragStart.py + dy
+            redraw()
+        })
+        window.addEventListener('mouseup', () => {
+            if (dragStart) {
+                dragStart = null
+                canvas.style.cursor = state.v1View.scale > 1 ? 'grab' : 'crosshair'
+                // brief delay so onclick sees _dragging flag, then clear it
+                setTimeout(() => { state.v1View._dragging = false }, 50)
+            }
+        })
+
+        // Double-click → reset zoom
+        canvas.addEventListener('dblclick', () => {
+            state.v1View.scale = 1; state.v1View.panX = 0; state.v1View.panY = 0
+            state.v1View._dragging = false
+            redraw()
+        })
+    }
 
     const legend = document.getElementById('v1-legend')
     if (legend) {
@@ -368,6 +443,7 @@ function renderV1() {
                 <span>${minS.toFixed(2)}</span>
                 <div class="legend-bar" style="background:linear-gradient(to right,${grad})"></div>
                 <span>${maxS.toFixed(2)}</span>
+                <span style="margin-left:12px;color:#94a3b8;font-size:10px">scroll to zoom · drag to pan · dblclick to reset</span>
             </div>`
     }
 }
@@ -447,18 +523,8 @@ function renderV4() {
     if (info && xStar != null) info.textContent = `x* = ${Number(xStar).toFixed(3)}`
 }
 
-// ─── V5: Feature Importance (image or fallback chart) ─────────────────────────
+// ─── V5: Feature Importance (interactive Chart.js) ───────────────────────────
 function renderV5() {
-    const imgPath = state.files.has('interpretability/importance_bar.png')
-        ? 'interpretability/importance_bar.png'
-        : state.files.has('viz/importance_bar.png') ? 'viz/importance_bar.png' : null
-
-    if (imgPath) {
-        setBody('v5', `<img src="${fileUrl(imgPath)}" class="viz-img" alt="Feature Importance">`)
-        return
-    }
-
-    // Fallback to CSV chart
     const data = state.globalImportance
     if (!data.length) { showNA('v5'); return }
     const keys = Object.keys(data[0])
@@ -490,18 +556,8 @@ function renderV5() {
     })
 }
 
-// ─── V6: ALE Plots (image or fallback chart grid) ────────────────────────────
+// ─── V6: ALE Plots (interactive Chart.js grid) ───────────────────────────────
 function renderV6() {
-    const imgPath = state.files.has('interpretability/ale_summary.png')
-        ? 'interpretability/ale_summary.png'
-        : state.files.has('viz/ale_summary.png') ? 'viz/ale_summary.png' : null
-
-    if (imgPath) {
-        setBody('v6', `<img src="${fileUrl(imgPath)}" class="viz-img" alt="ALE Summary">`)
-        return
-    }
-
-    // Fallback: CSV charts
     const data = state.ale
     const container = document.getElementById('v6-body')
     if (!data.length || !container) { showNA('v6', 'ALE data not available'); return }
@@ -596,14 +652,8 @@ function renderV7(blockId) {
     })
 }
 
-// ─── V8: Dominant Driver Map (image or canvas fallback) ──────────────────────
+// ─── V8: Dominant Driver Map (interactive canvas) ────────────────────────────
 function renderV8() {
-    const imgPath = state.files.has('viz/driver_map.png') ? 'viz/driver_map.png' : null
-    if (imgPath) {
-        setBody('v8', `<img src="${fileUrl(imgPath)}" class="viz-img" alt="Dominant Driver Map">`)
-        return
-    }
-
     if (!state.blocks.length || !state.driverMap.size) { showNA('v8'); return }
     // Show canvas (hidden by default)
     const canvas = document.getElementById('v8-canvas')
