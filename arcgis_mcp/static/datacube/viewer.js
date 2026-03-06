@@ -293,7 +293,15 @@ function renderV3() {
 
     const xStar = r['x*'] ?? r.x_star ?? r.threshold ?? null
     const metrics = [
-        { label: 'PR-AUC', value: r.metrics.pr_auc != null ? r.metrics.pr_auc.toFixed(3) : 'N/A', icon: '◉', accent: 'emerald' },
+        // { label: 'PR-AUC', value: r.metrics.pr_auc != null ? r.metrics.pr_auc.toFixed(3) : 'N/A', icon: '◉', accent: 'emerald' },
+        { 
+            label: 'PR-AUC',
+            value: r.metrics?.pr_auc != null
+                ? r.metrics.pr_auc.toFixed(3)
+                : 'N/A',
+            icon: '◉',
+            accent: 'emerald'
+            },
         { label: 'CV PR-AUC', value: m.cv.mean_pr_auc != null ? m.cv.mean_pr_auc.toFixed(3) : 'N/A', icon: '◎', accent: 'blue' },
         { label: 'Threshold x*', value: xStar != null ? xStar.toFixed(3) : 'N/A', icon: '◈', accent: 'violet' },
         { label: 'Model', value: m.model_type || r.model_type || 'N/A', icon: '⬡', accent: 'amber' },
