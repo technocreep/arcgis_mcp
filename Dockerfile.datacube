@@ -24,4 +24,4 @@ RUN mkdir -p /app/projects
 ENV PYTHONPATH=/app/data_cube
 ENV PROJECTS_DIR=/app/projects
 
-CMD ["uvicorn", "data_cube.server:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "api.server:app", "--host", "0.0.0.0", "--port", "8000"]
