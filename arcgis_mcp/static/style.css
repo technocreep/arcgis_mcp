@@ -1,0 +1,17 @@
+[v-cloak] { display: none; }
+.fade-enter-active, .fade-leave-active { transition: opacity 0.3s; }
+.fade-enter-from, .fade-leave-to { opacity: 0; }
+
+/* JSON Tree */
+.json-tree { font-family: 'Menlo', 'Monaco', 'Consolas', monospace; font-size: 13px; line-height: 1.6; }
+.json-node { position: relative; }
+.json-toggle { cursor: pointer; user-select: none; display: inline-flex; align-items: center; gap: 3px; }
+.json-toggle:hover .json-key { text-decoration: underline; }
+.json-children { border-left: 2px solid #e2e8f0; margin-left: 8px; padding-left: 12px; }
+.json-key   { color: #6d28d9; font-weight: 500; }
+.json-str   { color: #15803d; }
+.json-num   { color: #1d4ed8; }
+.json-bool  { color: #ea580c; font-weight: 700; }
+.json-null  { color: #94a3b8; font-style: italic; }
+.json-meta  { color: #94a3b8; font-size: 11px; }
+.json-arrow { color: #94a3b8; font-size: 10px; width: 10px; display: inline-block; }

@@ -80,10 +80,6 @@ class ProjectStore:
                     return str(entry)
         raise FileNotFoundError(f"Не найдена .gdb для проекта '{project_id}'")
 
-    # -----------------------------------------------------------------------
-    # Резолвинг имён слоёв
-    # -----------------------------------------------------------------------
-
     def resolve_layer_name(self, project_id: str, user_query: str) -> str | None:
         """Найти layer_id по display_name, dataset_name или alias.
 
