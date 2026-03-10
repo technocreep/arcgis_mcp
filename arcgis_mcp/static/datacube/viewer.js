@@ -300,9 +300,16 @@ function drawChoropleth(canvasId, tooltipId, colorFn, onClickBlock, view) {
 }
 
 // ─── V0: Interactive map (iframe) ─────────────────────────────────────────────
-function renderV0() {
+async function renderV0() {
     if (!state.files.has('viz/map.html')) { showNA('v0', 'Interactive map (viz/map.html) not found'); return }
-    setBody('v0', `<iframe src="${fileUrl('viz/map.html')}" class="map-iframe" title="Prospectivity Map"></iframe>`)
+    try {
+        const r = await fetch(fileUrl('viz/map.html'), authOpts())
+        if (!r.ok) { showNA('v0', 'Failed to load map'); return }
+        const html = await r.text()
+        const blob = new Blob([html], { type: 'text/html' })
+        const blobUrl = URL.createObjectURL(blob)
+        setBody('v0', `<iframe src="${blobUrl}" class="map-iframe" title="Prospectivity Map"></iframe>`)
+    } catch { showNA('v0', 'Failed to load map') }
 }
 
 // ─── V3: Model Metrics ────────────────────────────────────────────────────────
