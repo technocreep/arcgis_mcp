@@ -57,6 +57,7 @@ services:
       dockerfile: Dockerfile.datacube
       args:
         GITHUB_TOKEN: ${GITHUB_TOKEN}
+        CACHE_BUST: ${CACHE_BUST:-1}
     container_name: data-cube-server
     volumes:
       - projects:/app/projects

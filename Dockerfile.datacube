@@ -13,6 +13,7 @@ ENV C_INCLUDE_PATH=/usr/include/gdal
 WORKDIR /app
 
 ARG GITHUB_TOKEN
+ARG CACHE_BUST=1
 RUN git clone https://${GITHUB_TOKEN}@github.com/data-satanism/Data_cube.git data_cube
 
 RUN pip install --no-cache-dir numpy
