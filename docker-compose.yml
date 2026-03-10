@@ -60,6 +60,8 @@ services:
     container_name: data-cube-server
     volumes:
       - projects:/app/projects
+    env_file:
+      - .env
     environment:
       - PROJECTS_DIR=/app/projects
     restart: unless-stopped
