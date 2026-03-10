@@ -261,7 +261,7 @@ def _find_dc_dir(project_path: Path) -> Path | None:
 
 
 @app.get("/api/projects/{project_id}/datacube")
-async def datacube_artifacts_status(project_id: str):
+async def datacube_artifacts_status(project_id: str, _: str = Depends(require_auth)):
     """Проверить наличие артефактов Data Cube для проекта."""
     project_path = Path(PROJECTS_DIR) / project_id
     if not project_path.exists():
@@ -276,7 +276,7 @@ async def datacube_artifacts_status(project_id: str):
 
 
 @app.get("/api/projects/{project_id}/datacube/files/{file_path:path}")
-async def datacube_file_serve(project_id: str, file_path: str):
+async def datacube_file_serve(project_id: str, file_path: str, _: str = Depends(require_auth)):
     """Отдать файл артефактов Data Cube."""
     project_path = Path(PROJECTS_DIR) / project_id
     if not project_path.exists():

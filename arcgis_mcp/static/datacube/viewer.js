@@ -56,13 +56,25 @@ function fileUrl(path) {
     return `/api/projects/${state.projectId}/datacube/files/${path}`
 }
 
+function authHeader() {
+    const u = localStorage.getItem('gis_auth_user')
+    const p = localStorage.getItem('gis_auth_pass')
+    if (!u || !p) return null
+    return 'Basic ' + btoa(u + ':' + p)
+}
+
+function authOpts() {
+    const h = authHeader()
+    return h ? { headers: { Authorization: h } } : {}
+}
+
 async function fetchText(path) {
-    try { const r = await fetch(fileUrl(path)); return r.ok ? r.text() : null }
+    try { const r = await fetch(fileUrl(path), authOpts()); return r.ok ? r.text() : null }
     catch { return null }
 }
 
 async function fetchJSON(path) {
-    try { const r = await fetch(fileUrl(path)); return r.ok ? r.json() : {} }
+    try { const r = await fetch(fileUrl(path), authOpts()); return r.ok ? r.json() : {} }
     catch { return {} }
 }
 
@@ -96,7 +108,7 @@ function destroyChart(key) { if (charts[key]) { charts[key].destroy(); delete ch
 async function loadAll() {
     // Get file list first
     try {
-        const r = await fetch(`/api/projects/${state.projectId}/datacube`)
+        const r = await fetch(`/api/projects/${state.projectId}/datacube`, authOpts())
         if (r.ok) { const d = await r.json(); state.files = new Set(d.files || []) }
     } catch {}
 
@@ -743,6 +755,12 @@ async function main() {
     if (!state.projectId) {
         document.getElementById('app').innerHTML =
             '<div style="text-align:center;padding:80px;color:#dc2626;font-size:16px">No project_id in URL</div>'
+        return
+    }
+    if (!authHeader()) {
+        document.getElementById('app').innerHTML =
+            '<div style="text-align:center;padding:80px;color:#dc2626;font-size:16px">' +
+            'Not authenticated. Please <a href="/ui/" style="color:#2563eb">sign in via the portal</a> first.</div>'
         return
     }
     document.getElementById('project-id').textContent = state.projectId
