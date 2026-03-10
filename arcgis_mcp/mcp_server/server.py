@@ -33,6 +33,7 @@ from mcp_server.tools.viz_plot_layer import make_tools as make_plot_layer_tools
 from mcp_server.tools.viz_plot_overlay import make_tools as make_plot_overlay_tools
 from mcp_server.tools.viz_histogram import make_tools as make_plot_histogram_tools
 from mcp_server.tools.viz_interactive import make_tools as make_plot_interactive_tools
+from mcp_server.tools.datacube import make_tools as make_datacube_tools
 
 
 mcp = FastMCP(
@@ -59,7 +60,11 @@ mcp = FastMCP(
         "Для линеаментов: используй color='#00FF00' (лайм) в plot_overlay. "
         "Для экстремумов (полож./отриц.): используй color='red'/'blue' и marker='^'/'v'. "
         "Для тектоники: в plot_overlay задавай разные color/linewidth для надвигов и разломов. "
-        "show_license=True ВСЕГДА — контур лицензии задаёт границы карты."
+        "show_license=True ВСЕГДА — контур лицензии задаёт границы карты. "
+        "DATA CUBE: если пользователь спрашивает о проспективности, ML-модели, скорах блоков, "
+        "важности признаков или SHAP — используй datacube_overview() → datacube_block_scores() "
+        "→ datacube_block_detail(block_id=...) в таком порядке. "
+        "datacube_overview() всегда первым — он проверяет наличие артефактов в MinIO."
     ),
 )
 
@@ -78,6 +83,7 @@ _all_tools = (
     + make_plot_overlay_tools(store, _state)
     + make_plot_histogram_tools(store, _state)
     + make_plot_interactive_tools(store, _state)
+    + make_datacube_tools(store, _state)
 )
 
 for _tool_fn in _all_tools:
