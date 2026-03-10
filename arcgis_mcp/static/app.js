@@ -240,7 +240,8 @@ createApp({
 
         const checkDatacubeStatus = async (projectId) => {
             try {
-                const r = await fetch(`/api/projects/${projectId}/datacube`)
+                const opts = authHeader.value ? { headers: { Authorization: authHeader.value } } : {}
+                const r = await fetch(`/api/projects/${projectId}/datacube`, opts)
                 if (r.ok) {
                     const d = await r.json()
                     projectsCube.value = { ...projectsCube.value, [projectId]: d.exists }
