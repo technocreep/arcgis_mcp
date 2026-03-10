@@ -29,6 +29,7 @@ from arcgis_mcp.mcp_server.tools.viz_plot_layer import make_tools as make_plot_l
 from arcgis_mcp.mcp_server.tools.viz_plot_overlay import make_tools as make_plot_overlay_tools
 from arcgis_mcp.mcp_server.tools.viz_histogram import make_tools as make_plot_histogram_tools
 from arcgis_mcp.mcp_server.tools.viz_interactive import make_tools as make_plot_interactive_tools
+from arcgis_mcp.mcp_server.tools.datacube import make_tools as make_datacube_tools
 
 # ---------------------------------------------------------------------------
 # Приложение
@@ -75,6 +76,8 @@ list_attachments_fn, extract_attachment_fn = _att
 (plot_overlay_fn,) = make_plot_overlay_tools(store, _state)
 (plot_histogram_fn,) = make_plot_histogram_tools(store, _state)
 (plot_interactive_fn,) = make_plot_interactive_tools(store, _state)
+
+datacube_overview_fn, datacube_block_scores_fn, datacube_block_detail_fn = make_datacube_tools(store, _state)
 
 
 def _parse(result: str) -> Any:
@@ -526,3 +529,59 @@ async def plot_interactive(req: PlotInteractiveRequest):
             req.zoom, req.max_features_per_layer, req.style_overrides,
         )
     )
+
+
+# ---------------------------------------------------------------------------
+# Data Cube
+# ---------------------------------------------------------------------------
+
+class DatacubeOverviewRequest(BaseModel):
+    project_id: Optional[str] = Field(None, description="ID проекта (необязательно, если уже выбран)")
+
+
+@app.post(
+    "/datacube_overview",
+    operation_id="datacube_overview",
+    summary="Обзор артефактов Data Cube: метрики модели, распределение скоров, топ-3 фичи",
+    tags=["datacube"],
+)
+async def datacube_overview(req: DatacubeOverviewRequest):
+    """Первый вызов при работе с Data Cube. Проверяет наличие артефактов в MinIO,
+    возвращает метрики модели (pr_auc, cv), распределение скоров блоков, топ-3 фичи по важности
+    и доминирующие группы драйверов. Подсказывает следующий шаг."""
+    return _parse(datacube_overview_fn(req.project_id))
+
+
+class DatacubeBlockScoresRequest(BaseModel):
+    project_id: Optional[str] = Field(None, description="ID проекта (необязательно, если уже выбран)")
+    top_n: int = Field(20, ge=1, le=200, description="Сколько блоков вернуть (по умолчанию 20)")
+    min_score: Optional[float] = Field(None, ge=0.0, le=1.0, description="Минимальный порог score")
+
+
+@app.post(
+    "/datacube_block_scores",
+    operation_id="datacube_block_scores",
+    summary="Список блоков куба, отсортированных по score проспективности",
+    tags=["datacube"],
+)
+async def datacube_block_scores(req: DatacubeBlockScoresRequest):
+    """Возвращает отсортированный список блоков: rank, block_id, score, lon/lat, dominant_driver_group.
+    Используй после datacube_overview() для выбора интересных блоков."""
+    return _parse(datacube_block_scores_fn(req.project_id, req.top_n, req.min_score))
+
+
+class DatacubeBlockDetailRequest(BaseModel):
+    block_id: str = Field(..., description="ID блока из datacube_block_scores(), например 'block_2_0'")
+    project_id: Optional[str] = Field(None, description="ID проекта (необязательно, если уже выбран)")
+
+
+@app.post(
+    "/datacube_block_detail",
+    operation_id="datacube_block_detail",
+    summary="Полный профиль одного блока: координаты, score, фичи, SHAP-значения",
+    tags=["datacube"],
+)
+async def datacube_block_detail(req: DatacubeBlockDetailRequest):
+    """Детальная информация по одному блоку: геолокация, score и ранг, значения всех фич,
+    SHAP-значения (отсортированы по |значению|), доминирующий драйвер и его группа."""
+    return _parse(datacube_block_detail_fn(req.block_id, req.project_id))
