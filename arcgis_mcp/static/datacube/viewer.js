@@ -146,7 +146,9 @@ async function loadAll() {
     state.dominantDriver.forEach(d => {
         const keys = Object.keys(d)
         const idCol = keys.find(k => k === 'block_id') || keys[0]
-        const grpCol = keys.find(k => k !== idCol) || keys[1]
+        const grpCol = keys.find(k => k === 'dominant_driver_group')
+                    || keys.find(k => k !== idCol)
+                    || keys[1]
         state.driverMap.set(String(d[idCol]), d[grpCol])
     })
 }
@@ -361,7 +363,7 @@ function renderMetaValue(v, depth) {
 }
 
 function renderV9() {
-    const meta = state.runMeta
+    const meta = state.modelMeta
     if (!Object.keys(meta).length) { showNA('v9'); return }
     const rows = Object.entries(meta).map(([k, v]) =>
         `<tr><td class="meta-key">${k}</td><td class="meta-val">${renderMetaValue(v, 0)}</td></tr>`
@@ -548,7 +550,7 @@ function renderV5() {
     if (!data.length) { showNA('v5'); return }
     const keys = Object.keys(data[0])
     const featureCol = keys.find(k => ['feature','Feature','name'].includes(k)) || keys[0]
-    const importCol  = keys.find(k => ['importance','Importance','score','gain'].includes(k)) || keys[1]
+    const importCol  = keys.find(k => ['importance','Importance','score','gain','mean'].includes(k)) || keys[1]
     const groupCol   = keys.find(k => ['group','Group','category','type'].includes(k))
     const sorted = [...data].sort((a,b) => Math.abs(b[importCol]||0) - Math.abs(a[importCol]||0)).slice(0,20)
     const groups = groupCol ? [...new Set(sorted.map(d => d[groupCol]).filter(Boolean))] : []
@@ -577,9 +579,13 @@ function renderV5() {
 
 // ─── V6: ALE Plots (interactive Chart.js grid) ───────────────────────────────
 function renderV6() {
-    const data = state.ale
+    let data = state.ale
     const container = document.getElementById('v6-body')
     if (!data.length || !container) { showNA('v6', 'ALE data not available'); return }
+    const rawKeys = Object.keys(data[0])
+    if (rawKeys.includes('bin_left') && rawKeys.includes('bin_right') && !rawKeys.includes('bin_center')) {
+        data = data.map(row => ({ ...row, bin_center: ((row.bin_left ?? 0) + (row.bin_right ?? 0)) / 2 }))
+    }
     const keys = Object.keys(data[0])
     const featureCol = keys.find(k => ['feature','Feature'].includes(k)) || keys[0]
     const xCol = keys.find(k => ['x','X','bin','bin_center','value'].includes(k)) || keys[1]
@@ -591,7 +597,7 @@ function renderV6() {
     if (state.globalImportance.length) {
         const gk = Object.keys(state.globalImportance[0])
         const gf = gk.find(k => ['feature','Feature'].includes(k)) || gk[0]
-        const gi = gk.find(k => ['importance','Importance'].includes(k)) || gk[1]
+        const gi = gk.find(k => ['importance','Importance','mean'].includes(k)) || gk[1]
         const imp = new Map(state.globalImportance.map(d => [d[gf], Math.abs(d[gi]||0)]))
         features.sort((a,b) => (imp.get(b)||0) - (imp.get(a)||0))
     }
@@ -686,9 +692,30 @@ function renderV8() {
 
 // ─── V10: SHAP Heatmap by Geo-Unit ───────────────────────────────────────────
 function renderV10() {
-    const data = state.shapGeoUnit
+    const rawData = state.shapGeoUnit
     const container = document.getElementById('v10-body')
-    if (!data.length || !container) { showNA('v10'); return }
+    if (!rawData.length || !container) { showNA('v10'); return }
+
+    // Detect WIDE format (geo_unit column + feature columns, no 'feature' row column)
+    const rawKeys = Object.keys(rawData[0])
+    const geoColRaw = rawKeys.find(k => ['geo_unit','minerag_unit','geo','unit','region','area','zone'].includes(k))
+    const isWide = geoColRaw && !rawKeys.find(k => ['feature','Feature','feature_name'].includes(k))
+    let data = rawData
+    if (isWide) {
+        const SKIP = new Set(['summary_type', geoColRaw, 'minerag_unit'])
+        data = []
+        rawData.forEach(row => {
+            const geoLabel = row['minerag_unit'] != null && row['minerag_unit'] !== ''
+                ? `${row[geoColRaw]} / ${row['minerag_unit']}`
+                : String(row[geoColRaw])
+            Object.entries(row).forEach(([k, v]) => {
+                if (!SKIP.has(k) && v != null && v !== '' && !isNaN(v)) {
+                    data.push({ geo_unit: geoLabel, feature: k, mean_shap: parseFloat(v) })
+                }
+            })
+        })
+    }
+    if (!data.length) { showNA('v10'); return }
 
     const keys = Object.keys(data[0])
     const geoCol  = keys.find(k => ['geo_unit','geo','unit','region','area','zone'].includes(k)) || keys[0]
