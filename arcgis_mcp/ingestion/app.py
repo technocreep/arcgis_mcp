@@ -341,8 +341,11 @@ async def datacube_artifacts_status(project_id: str, _: str = Depends(require_au
     return {"exists": True, "files": sorted(files)}
 
 
-_DASHBOARD_CSS_INJECT = (
+_DASHBOARD_HEAD_INJECT = (
     '<link rel="stylesheet" href="/ui/datacube/dashboard-override.css">\n'
+)
+_DASHBOARD_BODY_INJECT = (
+    '<script src="/ui/datacube/lightbox.js"></script>\n'
 )
 
 @app.get("/api/projects/{project_id}/datacube/files/{file_path:path}")
@@ -385,11 +388,15 @@ async def datacube_file_serve(
     if not target.is_file():
         raise HTTPException(status_code=404, detail="File not found")
 
-    # HTML files: inject CSS override and return as HTMLResponse
+    # HTML files: inject CSS override + lightbox JS, return as HTMLResponse
     if target.suffix.lower() == ".html":
         html = target.read_text(encoding="utf-8", errors="replace")
         if "</head>" in html:
-            html = html.replace("</head>", _DASHBOARD_CSS_INJECT + "</head>", 1)
+            html = html.replace("</head>", _DASHBOARD_HEAD_INJECT + "</head>", 1)
+        if "</body>" in html:
+            html = html.replace("</body>", _DASHBOARD_BODY_INJECT + "</body>", 1)
+        else:
+            html += _DASHBOARD_BODY_INJECT
         resp: Response = HTMLResponse(html)
     else:
         resp = FileResponse(str(target))
