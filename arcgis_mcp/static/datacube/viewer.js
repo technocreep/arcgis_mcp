@@ -8,6 +8,8 @@ const state = {
     evalReport: {},
     modelMeta: {},
     runMeta: {},
+    experimentConfig: {},
+    rsStatus: {},
     globalImportance: [],
     ale: [],
     shapValues: [],    // wide format: block_id + feature cols
@@ -115,6 +117,7 @@ async function loadAll() {
     const [
         blocksTxt, scoresTxt, evalRep, modelMeta, runMeta,
         importTxt, aleTxt, shapTxt, driverTxt, geoShapTxt,
+        experimentConfig, rsStatus,
     ] = await Promise.all([
         fetchText('blocks.csv'),
         fetchText('scores.csv'),
@@ -126,12 +129,16 @@ async function loadAll() {
         fetchText('interpretability/shap_values.csv'),
         fetchText('interpretability/dominant_driver_group.csv'),
         fetchText('interpretability/shap_geo_unit_summary.csv'),
+        fetchJSON('experiment_config.json'),
+        fetchJSON('rs/rs_stage_status.json'),
     ])
 
     state.blocks = parseCSV(blocksTxt)
     state.evalReport = evalRep || {}
     state.modelMeta = modelMeta || {}
     state.runMeta = runMeta || {}
+    state.experimentConfig = experimentConfig || {}
+    state.rsStatus = rsStatus || {}
     state.globalImportance = parseCSV(importTxt)
     state.ale = parseCSV(aleTxt)
     state.shapValues = parseCSV(shapTxt)
@@ -782,6 +789,65 @@ function renderV10() {
     ctx.textAlign = 'right';  ctx.fillText(`+${absMax.toFixed(2)}`, LEFT+SW, TOP+geos.length*CELL_H+38)
 }
 
+// ─── V11: Dashboard Navigator ────────────────────────────────────────────────
+function renderV11() {
+    // RS badge
+    const rsBadge = document.getElementById('rs-badge')
+    const rsEnabled = state.rsStatus.enabled === true || state.rsStatus.mode === 'done'
+    if (rsBadge) {
+        rsBadge.style.display = 'inline-flex'
+        if (rsEnabled) {
+            rsBadge.classList.remove('inactive')
+            rsBadge.title = `Remote Sensing: ${state.rsStatus.sensor || 'enabled'}`
+        } else {
+            rsBadge.classList.add('inactive')
+            rsBadge.title = 'Remote Sensing: not used'
+        }
+    }
+
+    // Dashboard page cards
+    const DASH_PAGES = [
+        { file: 'dashboard/viz.html',       icon: '🗺',  title: 'Visualization Hub',   desc: 'Галерея карт, профили, сравнения' },
+        { file: 'dashboard/index.html',      icon: '📊',  title: 'Data Mart',           desc: 'Метрики и ключевые ссылки' },
+        { file: 'dashboard/data.html',       icon: '📋',  title: 'Data Preview',        desc: 'Артефакты CSV, статистики' },
+        { file: 'dashboard/metrics.html',    icon: '📈',  title: 'Eval Metrics',        desc: 'Capture curves, AUC' },
+        { file: 'dashboard/artifacts.html',  icon: '🗂',  title: 'Artifacts Registry',  desc: 'Все файлы пайплайна' },
+    ]
+    const available = DASH_PAGES.filter(p => state.files.has(p.file))
+
+    // Experiment config summary
+    const cfg = state.experimentConfig
+    const hasCfg = cfg && Object.keys(cfg).length > 0
+    const pills = []
+    if (hasCfg) {
+        const cs = cfg.pipeline?.cube_spec
+        if (cs?.step_m)              pills.push(`step=${cs.step_m}m`)
+        if (cs?.fault_radius_m)      pills.push(`fault_r=${cs.fault_radius_m}m`)
+        if (cfg.pipeline?.rs_spec?.enabled) pills.push('RS=on')
+        if (cfg.run_interpretability === false) pills.push('interp=off')
+        const recipes = cfg.viz?.recipes
+        if (Array.isArray(recipes) && recipes.length) pills.push(`recipes=${recipes.length}`)
+    }
+
+    const cardsHtml = available.length
+        ? `<div class="dash-grid">${available.map(p => {
+            const url = fileUrl(p.file)
+            return `<a class="dash-card" href="${url}" target="_blank" rel="noopener">
+                <div class="dash-card-icon">${p.icon}</div>
+                <div class="dash-card-title">${p.title}</div>
+                <div class="dash-card-desc">${p.desc}</div>
+            </a>`
+          }).join('')}</div>`
+        : `<div class="na-msg">Dashboard pages not yet generated.<br>Run the pipeline to produce <code>dashboard/</code> artifacts.</div>`
+
+    const configHtml = hasCfg && pills.length
+        ? `<div class="dash-section-title">Run Config</div>
+           <div class="config-strip">${pills.map(p => `<span class="config-pill">${p}</span>`).join('')}</div>`
+        : ''
+
+    setBody('v11', cardsHtml + configHtml)
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 async function main() {
     const params = new URLSearchParams(window.location.search)
@@ -813,6 +879,7 @@ async function main() {
     renderV6()
     renderV8()
     renderV10()
+    renderV11()
 }
 
 main()

@@ -368,19 +368,33 @@ createApp({
         const dcPollInterval = ref(null)
 
         const dcDefaultForm = () => ({
+            // Primary
             step_m: 500,
             pad: 0.10,
-            fault_radius_m: 20000,
-            contact_radius_m: 20000,
-            top_fault_classes: 10,
-            fault_radii_m: NaN,
-            contact_radii_m: NaN,
             pos_radius_m: 5000,
             neg_ratio: 5,
+            ore_layer: '',
             seed: 42,
             model_type: 'catboost',
-            group_block_m: 50000,
             splits: 3,
+            group_block_m: 50000,
+            rs_enabled: true,
+            rs_reuse_existing: true,
+            // Advanced — Features
+            fault_radius_m: 10000,
+            contact_radius_m: 10000,
+            top_fault_classes: 10,
+            fault_radii_m: '',
+            contact_radii_m: '',
+            // Advanced — Label Profiles
+            auto_discover: true,
+            discovery_field: '',
+            max_auto_profiles: 6,
+            // Advanced — Visualization
+            geometry_mode: 'auto',
+            include_gis_layers: false,
+            // Advanced — Options
+            run_interpretability: true,
         })
         const dcForm = ref(dcDefaultForm())
 
@@ -425,19 +439,32 @@ createApp({
 
             const payload = {
                 project_id: dataCubeProject.value.id,
+                // Primary
                 step_m: dcForm.value.step_m,
                 pad: dcForm.value.pad,
+                pos_radius_m: dcForm.value.pos_radius_m,
+                neg_ratio: dcForm.value.neg_ratio,
+                seed: dcForm.value.seed,
+                model_type: dcForm.value.model_type,
+                splits: dcForm.value.splits,
+                group_block_m: dcForm.value.group_block_m,
+                ore_layer: dcForm.value.ore_layer || null,
+                rs_enabled: dcForm.value.rs_enabled,
+                rs_reuse_existing: dcForm.value.rs_reuse_existing,
+                // Advanced — Features
                 fault_radius_m: dcForm.value.fault_radius_m,
                 contact_radius_m: dcForm.value.contact_radius_m,
                 top_fault_classes: dcForm.value.top_fault_classes,
                 fault_radii_m: parseRadii(dcForm.value.fault_radii_m),
                 contact_radii_m: parseRadii(dcForm.value.contact_radii_m),
-                pos_radius_m: dcForm.value.pos_radius_m,
-                neg_ratio: dcForm.value.neg_ratio,
-                seed: dcForm.value.seed,
-                model_type: dcForm.value.model_type,
-                group_block_m: dcForm.value.group_block_m,
-                splits: dcForm.value.splits,
+                // Advanced — Label Profiles
+                auto_discover: dcForm.value.auto_discover,
+                discovery_field: dcForm.value.discovery_field || null,
+                max_auto_profiles: dcForm.value.max_auto_profiles,
+                // Advanced — Visualization & Options
+                geometry_mode: dcForm.value.geometry_mode,
+                include_gis_layers: dcForm.value.include_gis_layers,
+                run_interpretability: dcForm.value.run_interpretability,
             }
 
             try {
