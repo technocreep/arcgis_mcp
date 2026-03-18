@@ -10,6 +10,7 @@ import math
 import shutil
 import zipfile
 import os
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List, Optional
 import tempfile
@@ -18,7 +19,7 @@ import secrets
 
 import httpx
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -40,6 +41,24 @@ app = FastAPI(title="GIS Ingestion API", version="1.0")
 _security = HTTPBasic()
 _security_optional = HTTPBasic(auto_error=False)
 
+# ── Session store (in-memory, 8 h TTL) ──────────────────────────────────────
+_sessions: dict[str, datetime] = {}
+_SESSION_TTL = 8 * 3600  # seconds
+
+def _new_session() -> str:
+    token = secrets.token_urlsafe(32)
+    _sessions[token] = datetime.utcnow() + timedelta(seconds=_SESSION_TTL)
+    return token
+
+def _valid_session(token: str | None) -> bool:
+    if not token:
+        return False
+    expiry = _sessions.get(token)
+    if expiry and datetime.utcnow() < expiry:
+        return True
+    _sessions.pop(token, None)
+    return False
+
 def _check_credentials(username: str, password: str) -> bool:
     return (
         secrets.compare_digest(username.encode(), AUTH_USERNAME.encode())
@@ -59,7 +78,9 @@ def require_auth_flexible(
     request: Request,
     credentials: Optional[HTTPBasicCredentials] = Depends(_security_optional),
 ) -> str:
-    """Auth that accepts either Authorization header or ?_auth=base64(user:pass) query param."""
+    """Auth via Basic header, ?_auth= query param, or gis_session cookie."""
+    if _valid_session(request.cookies.get("gis_session")):
+        return "session"
     if credentials and _check_credentials(credentials.username, credentials.password):
         return credentials.username
     auth_param = request.query_params.get("_auth")
@@ -76,6 +97,24 @@ def require_auth_flexible(
         detail="Not authenticated",
         headers={"WWW-Authenticate": "Basic"},
     )
+
+
+def _resolve_auth(request: Request, credentials: Optional[HTTPBasicCredentials]) -> tuple[str | None, bool]:
+    """Returns (username_or_None, should_set_session_cookie)."""
+    if _valid_session(request.cookies.get("gis_session")):
+        return "session", False
+    if credentials and _check_credentials(credentials.username, credentials.password):
+        return credentials.username, True
+    auth_param = request.query_params.get("_auth")
+    if auth_param:
+        try:
+            decoded = base64.b64decode(auth_param).decode("utf-8")
+            username, password = decoded.split(":", 1)
+            if _check_credentials(username, password):
+                return username, True
+        except Exception:
+            pass
+    return None, False
 
 # CORS (для разработки)
 app.add_middleware(
@@ -302,9 +341,32 @@ async def datacube_artifacts_status(project_id: str, _: str = Depends(require_au
     return {"exists": True, "files": sorted(files)}
 
 
+_DASHBOARD_CSS_INJECT = (
+    '<link rel="stylesheet" href="/ui/datacube/dashboard-override.css">\n'
+)
+
 @app.get("/api/projects/{project_id}/datacube/files/{file_path:path}")
-async def datacube_file_serve(project_id: str, file_path: str, _: str = Depends(require_auth_flexible)):
-    """Отдать файл артефактов Data Cube."""
+async def datacube_file_serve(
+    project_id: str,
+    file_path: str,
+    request: Request,
+    credentials: Optional[HTTPBasicCredentials] = Depends(_security_optional),
+):
+    """Отдать файл артефактов Data Cube.
+
+    Аутентификация: Basic Auth header, ?_auth=base64(user:pass), или cookie gis_session.
+    При первом успехе через header/param выставляет сессионную cookie — это позволяет
+    переходить по внутренним ссылкам dashboard-страниц без повторной авторизации.
+    HTML-файлы дополнительно получают инъекцию /ui/datacube/dashboard-override.css.
+    """
+    user, set_cookie = _resolve_auth(request, credentials)
+    if not user:
+        raise HTTPException(
+            status_code=401,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+
     project_path = Path(PROJECTS_DIR) / project_id
     if not project_path.exists():
         raise HTTPException(status_code=404, detail="Project not found")
@@ -323,4 +385,18 @@ async def datacube_file_serve(project_id: str, file_path: str, _: str = Depends(
     if not target.is_file():
         raise HTTPException(status_code=404, detail="File not found")
 
-    return FileResponse(str(target))
+    # HTML files: inject CSS override and return as HTMLResponse
+    if target.suffix.lower() == ".html":
+        html = target.read_text(encoding="utf-8", errors="replace")
+        if "</head>" in html:
+            html = html.replace("</head>", _DASHBOARD_CSS_INJECT + "</head>", 1)
+        resp: Response = HTMLResponse(html)
+    else:
+        resp = FileResponse(str(target))
+
+    if set_cookie:
+        resp.set_cookie(
+            "gis_session", _new_session(),
+            httponly=True, samesite="lax", max_age=_SESSION_TTL,
+        )
+    return resp
