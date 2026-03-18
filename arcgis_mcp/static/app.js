@@ -396,7 +396,39 @@ createApp({
             // Advanced — Options
             run_interpretability: true,
         })
+
+        const DC_PRESETS = {
+            lekyn: {
+                step_m: 500, pad: 0.10,
+                pos_radius_m: 5000, neg_ratio: 5, ore_layer: 'DrudP_R_42', seed: 42,
+                model_type: 'catboost', splits: 3, group_block_m: 50000,
+                rs_enabled: true, rs_reuse_existing: true,
+                fault_radius_m: 10000, contact_radius_m: 10000, top_fault_classes: 10,
+                fault_radii_m: '', contact_radii_m: '',
+                auto_discover: true, discovery_field: '', max_auto_profiles: 6,
+                geometry_mode: 'auto', include_gis_layers: false,
+                run_interpretability: true,
+            },
+            kolpino: {
+                step_m: 500, pad: 0.10,
+                pos_radius_m: 5000, neg_ratio: 5, ore_layer: 'DrudP_R_42', seed: 42,
+                model_type: 'catboost', splits: 3, group_block_m: 50000,
+                rs_enabled: false, rs_reuse_existing: true,
+                fault_radius_m: 10000, contact_radius_m: 10000, top_fault_classes: 10,
+                fault_radii_m: '', contact_radii_m: '',
+                auto_discover: true, discovery_field: '', max_auto_profiles: 6,
+                geometry_mode: 'auto', include_gis_layers: false,
+                run_interpretability: true,
+            },
+        }
+
         const dcForm = ref(dcDefaultForm())
+        const dcSelectedPreset = ref('')
+
+        const loadDcPreset = () => {
+            const preset = DC_PRESETS[dcSelectedPreset.value]
+            if (preset) dcForm.value = { ...dcDefaultForm(), ...preset }
+        }
 
         const dataCubeStageIndex = computed(() => DC_STAGES.indexOf(dataCubeStage.value))
 
@@ -419,6 +451,7 @@ createApp({
             dataCubeStage.value = null
             dataCubeError.value = null
             dcForm.value = dcDefaultForm()
+            dcSelectedPreset.value = ''
             showDataCubeModal.value = true
         }
 
@@ -577,6 +610,8 @@ createApp({
             dataCubeProgressLabel,
             dataCubeError,
             dcForm,
+            dcSelectedPreset,
+            loadDcPreset,
             openDataCube,
             closeDataCube,
             submitDataCube,

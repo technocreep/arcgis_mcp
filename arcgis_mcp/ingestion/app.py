@@ -4,13 +4,14 @@
     uvicorn ingestion.app:app --reload
 """
 
+import base64
 import json
 import math
 import shutil
 import zipfile
 import os
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 import tempfile
 
 import secrets
@@ -37,19 +38,44 @@ app = FastAPI(title="GIS Ingestion API", version="1.0")
 # Учётные данные задаются через GIS_USERNAME / GIS_PASSWORD (см. config.py)
 # ---------------------------------------------------------------------------
 _security = HTTPBasic()
+_security_optional = HTTPBasic(auto_error=False)
+
+def _check_credentials(username: str, password: str) -> bool:
+    return (
+        secrets.compare_digest(username.encode(), AUTH_USERNAME.encode())
+        and secrets.compare_digest(password.encode(), AUTH_PASSWORD.encode())
+    )
 
 def require_auth(credentials: HTTPBasicCredentials = Depends(_security)) -> str:
-    ok = (
-        secrets.compare_digest(credentials.username.encode(), AUTH_USERNAME.encode())
-        and secrets.compare_digest(credentials.password.encode(), AUTH_PASSWORD.encode())
-    )
-    if not ok:
+    if not _check_credentials(credentials.username, credentials.password):
         raise HTTPException(
             status_code=401,
             detail="Invalid credentials",
             headers={"WWW-Authenticate": "Basic"},
         )
     return credentials.username
+
+def require_auth_flexible(
+    request: Request,
+    credentials: Optional[HTTPBasicCredentials] = Depends(_security_optional),
+) -> str:
+    """Auth that accepts either Authorization header or ?_auth=base64(user:pass) query param."""
+    if credentials and _check_credentials(credentials.username, credentials.password):
+        return credentials.username
+    auth_param = request.query_params.get("_auth")
+    if auth_param:
+        try:
+            decoded = base64.b64decode(auth_param).decode("utf-8")
+            username, password = decoded.split(":", 1)
+            if _check_credentials(username, password):
+                return username
+        except Exception:
+            pass
+    raise HTTPException(
+        status_code=401,
+        detail="Not authenticated",
+        headers={"WWW-Authenticate": "Basic"},
+    )
 
 # CORS (для разработки)
 app.add_middleware(
@@ -277,7 +303,7 @@ async def datacube_artifacts_status(project_id: str, _: str = Depends(require_au
 
 
 @app.get("/api/projects/{project_id}/datacube/files/{file_path:path}")
-async def datacube_file_serve(project_id: str, file_path: str, _: str = Depends(require_auth)):
+async def datacube_file_serve(project_id: str, file_path: str, _: str = Depends(require_auth_flexible)):
     """Отдать файл артефактов Data Cube."""
     project_path = Path(PROJECTS_DIR) / project_id
     if not project_path.exists():

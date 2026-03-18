@@ -65,6 +65,13 @@ function authHeader() {
     return 'Basic ' + btoa(u + ':' + p)
 }
 
+function authQueryParam() {
+    const u = localStorage.getItem('gis_auth_user')
+    const p = localStorage.getItem('gis_auth_pass')
+    if (!u || !p) return ''
+    return '?_auth=' + btoa(u + ':' + p)
+}
+
 function authOpts() {
     const h = authHeader()
     return h ? { headers: { Authorization: h } } : {}
@@ -829,9 +836,10 @@ function renderV11() {
         if (Array.isArray(recipes) && recipes.length) pills.push(`recipes=${recipes.length}`)
     }
 
+    const authParam = authQueryParam()
     const cardsHtml = available.length
         ? `<div class="dash-grid">${available.map(p => {
-            const url = fileUrl(p.file)
+            const url = fileUrl(p.file) + authParam
             return `<a class="dash-card" href="${url}" target="_blank" rel="noopener">
                 <div class="dash-card-icon">${p.icon}</div>
                 <div class="dash-card-title">${p.title}</div>
