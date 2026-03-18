@@ -1,0 +1,207 @@
+/* ── Dashboard override — injected automatically into Data Cube dashboard pages ── */
+
+:root {
+    --brand: #059669;
+    --brand-light: #d1fae5;
+    --text: #1e293b;
+    --muted: #64748b;
+    --border: #e2e8f0;
+    --bg: #f8fafc;
+    --surface: #ffffff;
+    --radius: 10px;
+    --shadow: 0 1px 4px rgba(0,0,0,0.07);
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
+    background: #f1f5f9 !important;
+    color: var(--text) !important;
+    font-size: 14px !important;
+    margin: 0 !important;
+}
+
+/* ── Header / nav ─────────────────────────────────────────────────────────── */
+body > header,
+body > nav,
+header,
+nav {
+    background: var(--surface) !important;
+    border-bottom: 1px solid var(--border) !important;
+    padding: 10px 20px !important;
+    font-size: 13px !important;
+    box-shadow: var(--shadow) !important;
+}
+
+nav a, header a {
+    color: var(--muted) !important;
+    text-decoration: none !important;
+    padding: 3px 8px;
+    border-radius: 5px;
+    transition: background 0.15s, color 0.15s;
+    font-weight: 500 !important;
+}
+
+nav a:hover, header a:hover {
+    background: var(--bg) !important;
+    color: var(--brand) !important;
+}
+
+/* ── Main content area ────────────────────────────────────────────────────── */
+body > main,
+main {
+    max-width: 1280px !important;
+    margin: 0 auto !important;
+    padding: 20px !important;
+}
+
+/* ── Cards / sections ─────────────────────────────────────────────────────── */
+.card,
+section,
+article {
+    background: var(--surface) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: var(--radius) !important;
+    box-shadow: var(--shadow) !important;
+    padding: 18px !important;
+    margin-bottom: 18px !important;
+}
+
+section > h2,
+section > h3,
+.card > h2,
+.card > h3 {
+    font-size: 13px !important;
+    font-weight: 700 !important;
+    color: var(--muted) !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.06em !important;
+    margin: 0 0 12px !important;
+    padding-bottom: 8px !important;
+    border-bottom: 1px solid var(--border) !important;
+}
+
+h1 {
+    font-size: 16px !important;
+    font-weight: 700 !important;
+    color: var(--text) !important;
+}
+
+h2 { font-size: 14px !important; font-weight: 600 !important; }
+h3 { font-size: 13px !important; font-weight: 600 !important; }
+
+/* ── Tables ───────────────────────────────────────────────────────────────── */
+table, .table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    font-size: 12px !important;
+}
+
+th {
+    background: var(--bg) !important;
+    color: var(--muted) !important;
+    font-weight: 600 !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.04em !important;
+    font-size: 10px !important;
+    padding: 8px 10px !important;
+    border-bottom: 2px solid var(--border) !important;
+    text-align: left !important;
+}
+
+td {
+    padding: 6px 10px !important;
+    border-bottom: 1px solid var(--border) !important;
+    color: var(--text) !important;
+    vertical-align: top !important;
+}
+
+tr:last-child td { border-bottom: none !important; }
+tr:hover td { background: #f8fafc !important; }
+
+/* ── Images & figures ─────────────────────────────────────────────────────── */
+.img-card, figure {
+    background: var(--bg) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 8px !important;
+    padding: 10px !important;
+    text-align: center !important;
+}
+
+figcaption {
+    font-size: 11px !important;
+    color: var(--muted) !important;
+    margin-top: 6px !important;
+}
+
+img {
+    max-width: 100% !important;
+    height: auto !important;
+    border-radius: 6px !important;
+}
+
+/* ── Gallery grid ─────────────────────────────────────────────────────────── */
+.gallery {
+    display: grid !important;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)) !important;
+    gap: 14px !important;
+}
+
+/* ── Map iframe ───────────────────────────────────────────────────────────── */
+.map-frame, iframe {
+    width: 100% !important;
+    min-height: 560px !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 8px !important;
+}
+
+/* ── Code / pre ───────────────────────────────────────────────────────────── */
+pre, code {
+    font-family: 'SF Mono', 'Fira Code', ui-monospace, monospace !important;
+    font-size: 12px !important;
+    background: var(--bg) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 6px !important;
+    padding: 10px 14px !important;
+    overflow-x: auto !important;
+    color: #334155 !important;
+}
+
+/* ── Warn / alert ─────────────────────────────────────────────────────────── */
+.warn {
+    background: #fefce8 !important;
+    border: 1px solid #fde047 !important;
+    border-left: 3px solid #eab308 !important;
+    border-radius: 6px !important;
+    padding: 10px 14px !important;
+    font-size: 12px !important;
+    color: #713f12 !important;
+}
+
+/* ── Split layout ─────────────────────────────────────────────────────────── */
+.split {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    gap: 14px !important;
+}
+
+@media (max-width: 700px) { .split { grid-template-columns: 1fr !important; } }
+
+/* ── Links ────────────────────────────────────────────────────────────────── */
+a {
+    color: var(--brand) !important;
+    text-decoration: none !important;
+}
+a:hover { text-decoration: underline !important; }
+
+/* ── Select / dropdown ────────────────────────────────────────────────────── */
+select {
+    border: 1px solid var(--border) !important;
+    border-radius: 6px !important;
+    padding: 5px 10px !important;
+    font-size: 12px !important;
+    background: var(--surface) !important;
+    color: var(--text) !important;
+    outline: none !important;
+}
