@@ -253,10 +253,11 @@ async def datacube_get_job(job_id: str):
 def _find_dc_dir(project_path: Path) -> Path | None:
     """Найти директорию с артефактами Data Cube (datacube/ или корень проекта)."""
     dc_sub = project_path / "datacube"
-    if (dc_sub / "scores.csv").exists():
-        return dc_sub
-    if (project_path / "scores.csv").exists():
-        return project_path
+    for indicator in ("scores.csv", "blocks.csv"):
+        if (dc_sub / indicator).exists():
+            return dc_sub
+        if (project_path / indicator).exists():
+            return project_path
     return None
 
 
@@ -271,7 +272,7 @@ async def datacube_artifacts_status(project_id: str, _: str = Depends(require_au
     if dc_dir is None:
         return {"exists": False}
 
-    files = [str(f.relative_to(dc_dir)) for f in dc_dir.rglob("*") if f.is_file()]
+    files = [f.relative_to(dc_dir).as_posix() for f in dc_dir.rglob("*") if f.is_file()]
     return {"exists": True, "files": sorted(files)}
 
 
