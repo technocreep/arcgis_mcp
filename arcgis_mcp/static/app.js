@@ -153,6 +153,20 @@ function toggleAllNodes(container, expand) {
 
 createApp({
     setup() {
+        // ── Toast notifications ──
+        const toasts = ref([])
+        const addToast = (msg, type = 'info') => {
+            const id = Date.now()
+            toasts.value.push({ id, msg, type })
+            setTimeout(() => { toasts.value = toasts.value.filter(t => t.id !== id) }, 4000)
+        }
+        const toastIcon = (type) => ({
+            success: 'fa-solid fa-circle-check',
+            error:   'fa-solid fa-circle-exclamation',
+            info:    'fa-solid fa-circle-info',
+            warn:    'fa-solid fa-triangle-exclamation',
+        }[type] || 'fa-solid fa-circle-info')
+
         // ── Auth state ──
         const isAuthenticated = ref(false)
         const authUser = ref(localStorage.getItem('gis_auth_user') || '')
@@ -215,6 +229,7 @@ createApp({
                     localStorage.setItem('gis_auth_user', authUser.value)
                     localStorage.setItem('gis_auth_pass', authPass.value)
                     showAuthModal.value = false
+                    addToast('Credentials updated.', 'success')
                 } else {
                     authModalError.value = 'Invalid credentials.'
                 }
@@ -237,6 +252,15 @@ createApp({
         const gdbInput = ref(null)
         const aprxInput = ref(null)
         const atbxInput = ref(null)
+
+        // Drag-and-drop for GDB file
+        const gdbDragOver = ref(false)
+        const gdbFile = ref(null)
+        const onGdbDrop = (e) => {
+            gdbDragOver.value = false
+            const file = e.dataTransfer.files[0]
+            if (file) gdbFile.value = file
+        }
 
         const checkDatacubeStatus = async (projectId) => {
             try {
@@ -264,12 +288,15 @@ createApp({
         }
 
         const uploadProject = async () => {
+            const gdb = gdbFile.value || gdbInput.value?.files[0]
+            if (!gdb) { error.value = 'Please select a .gdb zip archive.'; return }
+
             uploading.value = true
             error.value = null
 
             const formData = new FormData()
             formData.append('project_id', form.value.id)
-            if (gdbInput.value?.files[0]) formData.append('gdb_zip', gdbInput.value.files[0])
+            formData.append('gdb_zip', gdb)
             if (aprxInput.value?.files[0]) formData.append('aprx', aprxInput.value.files[0])
             if (atbxInput.value?.files[0]) formData.append('atbx', atbxInput.value.files[0])
 
@@ -286,9 +313,11 @@ createApp({
                 }
                 showUploadModal.value = false
                 form.value.id = ''
+                gdbFile.value = null
                 if (gdbInput.value) gdbInput.value.value = ''
                 if (aprxInput.value) aprxInput.value.value = ''
                 if (atbxInput.value) atbxInput.value.value = ''
+                addToast('Project uploaded successfully.', 'success')
                 await fetchProjects()
             } catch (e) {
                 error.value = e.message
@@ -297,16 +326,24 @@ createApp({
             }
         }
 
-        const deleteProject = async (id) => {
-            if (!confirm(`Delete project '${id}'?`)) return
+        // ── Delete confirmation ──
+        const deleteTarget = ref(null)
+        const confirmDelete = (project) => { deleteTarget.value = project }
+        const cancelDelete = () => { deleteTarget.value = null }
+        const doDelete = async () => {
+            const project = deleteTarget.value
+            deleteTarget.value = null
             try {
-                const res = await fetch(`/api/projects/${id}`, {
+                const res = await fetch(`/api/projects/${project.id}`, {
                     method: 'DELETE',
                     headers: { Authorization: authHeader.value }
                 })
-                if (res.status === 401) { alert('Invalid credentials.'); return }
-                if (res.ok) await fetchProjects()
-            } catch { alert('Failed to delete') }
+                if (res.status === 401) { addToast('Invalid credentials.', 'error'); return }
+                if (res.ok) {
+                    addToast(`"${project.name || project.id}" deleted.`, 'success')
+                    await fetchProjects()
+                }
+            } catch { addToast('Failed to delete project.', 'error') }
         }
 
         const formatDate = (isoString) => {
@@ -366,6 +403,15 @@ createApp({
         const dataCubeStage = ref(null)
         const dataCubeError = ref(null)
         const dcPollInterval = ref(null)
+
+        // Elapsed time timer
+        const dcElapsed = ref(0)
+        const dcTimer = ref(null)
+        const dcElapsedLabel = computed(() => {
+            const m = Math.floor(dcElapsed.value / 60)
+            const s = dcElapsed.value % 60
+            return m > 0 ? `${m}m ${s}s` : `${s}s`
+        })
 
         const dcDefaultForm = () => ({
             // Primary
@@ -458,6 +504,8 @@ createApp({
         const closeDataCube = () => {
             if (dcPollInterval.value) clearInterval(dcPollInterval.value)
             dcPollInterval.value = null
+            if (dcTimer.value) clearInterval(dcTimer.value)
+            dcTimer.value = null
             showDataCubeModal.value = false
         }
 
@@ -469,6 +517,8 @@ createApp({
             dataCubeStatus.value = 'running'
             dataCubeStage.value = 'grid'
             dataCubeError.value = null
+            dcElapsed.value = 0
+            dcTimer.value = setInterval(() => dcElapsed.value++, 1000)
 
             const payload = {
                 project_id: dataCubeProject.value.id,
@@ -515,6 +565,8 @@ createApp({
             } catch (e) {
                 dataCubeStatus.value = 'failed'
                 dataCubeError.value = e.message
+                clearInterval(dcTimer.value)
+                dcTimer.value = null
             }
         }
 
@@ -529,8 +581,13 @@ createApp({
                     dataCubeError.value = data.error || null
                     clearInterval(dcPollInterval.value)
                     dcPollInterval.value = null
+                    clearInterval(dcTimer.value)
+                    dcTimer.value = null
                     if (data.status === 'done' && dataCubeProject.value) {
                         checkDatacubeStatus(dataCubeProject.value.id)
+                        addToast('Data Cube pipeline completed.', 'success')
+                    } else if (data.status === 'failed') {
+                        addToast('Data Cube pipeline failed.', 'error')
                     }
                 }
             } catch { /* ignore transient errors */ }
@@ -542,6 +599,18 @@ createApp({
 
         // ── Boot ──
         onMounted(async () => {
+            // Escape key — close active modal
+            document.addEventListener('keydown', e => {
+                if (e.key !== 'Escape') return
+                if (deleteTarget.value)         { cancelDelete(); return }
+                if (showObserveModal.value)      { showObserveModal.value = false; return }
+                if (showUploadModal.value)       { showUploadModal.value = false; return }
+                if (showAuthModal.value)         { showAuthModal.value = false; return }
+                if (showDataCubeModal.value && dataCubeStatus.value !== 'running') {
+                    closeDataCube()
+                }
+            })
+
             if (authUser.value && authPass.value) {
                 try {
                     const res = await fetch('/api/auth', { headers: { Authorization: authHeader.value } })
@@ -562,6 +631,8 @@ createApp({
         })
 
         return {
+            // toasts
+            toasts, addToast, toastIcon,
             // auth
             isAuthenticated,
             authUser,
@@ -586,9 +657,16 @@ createApp({
             gdbInput,
             aprxInput,
             atbxInput,
+            gdbDragOver,
+            gdbFile,
+            onGdbDrop,
             fetchProjects,
             uploadProject,
-            deleteProject,
+            // delete
+            deleteTarget,
+            confirmDelete,
+            cancelDelete,
+            doDelete,
             formatDate,
             // observe
             showObserveModal,
@@ -601,6 +679,7 @@ createApp({
             treeCollapseAll,
             // data cube
             DC_STAGES,
+            DC_STAGE_LABELS,
             showDataCubeModal,
             dataCubeProject,
             dataCubeStatus,
@@ -612,6 +691,8 @@ createApp({
             dcForm,
             dcSelectedPreset,
             loadDcPreset,
+            dcElapsed,
+            dcElapsedLabel,
             openDataCube,
             closeDataCube,
             submitDataCube,

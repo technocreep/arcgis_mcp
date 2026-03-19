@@ -91,9 +91,9 @@
         <!-- Main Content -->
         <main class="flex-grow max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full">
 
-            <!-- Loading State -->
-            <div v-if="loading" class="flex justify-center py-12">
-                <i class="fa-solid fa-circle-notch fa-spin text-3xl text-blue-500"></i>
+            <!-- Loading State — skeleton cards -->
+            <div v-if="loading" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <div v-for="i in 6" :key="i" class="skeleton-card"></div>
             </div>
 
             <!-- Empty State -->
@@ -106,49 +106,55 @@
             <!-- Projects Grid -->
             <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 <div v-for="project in projects" :key="project.id"
-                    class="bg-white rounded-xl shadow-sm border border-slate-200 hover:shadow-md transition-shadow overflow-hidden flex flex-col">
+                    class="project-card bg-white rounded-xl shadow-sm border border-slate-200 hover:shadow-md transition-shadow overflow-hidden flex flex-col"
+                    :class="{ 'has-cube': projectsCube[project.id] }">
                     <div class="p-5 flex-grow">
-                        <div class="flex justify-between items-start mb-2">
-                            <h3 class="text-lg font-semibold text-slate-900 truncate" :title="project.name">{{ project.name || project.id }}</h3>
-                            <div class="flex items-center gap-2 shrink-0 ml-2">
-                                <button v-if="projectsCube[project.id]" @click="openDataCubeViewer(project.id)"
-                                    title="View Data Cube artifacts"
-                                    class="text-xs bg-emerald-100 text-emerald-700 hover:bg-emerald-200 px-2 py-0.5 rounded-full font-medium flex items-center gap-1 transition-colors">
-                                    <i class="fa-solid fa-cube text-[10px]"></i> Cube
-                                </button>
-                                <span class="text-xs font-mono bg-slate-100 text-slate-600 px-2 py-1 rounded">{{ project.id }}</span>
-                            </div>
+                        <!-- Card header: name + delete -->
+                        <div class="flex items-start justify-between mb-1">
+                            <h3 class="text-base font-semibold text-slate-900 truncate leading-tight" :title="project.name">{{ project.name || project.id }}</h3>
+                            <button @click="confirmDelete(project)" title="Delete project"
+                                class="text-slate-300 hover:text-red-400 transition-colors p-1 -mt-0.5 -mr-1 shrink-0 ml-2">
+                                <i class="fa-regular fa-trash-can text-xs"></i>
+                            </button>
                         </div>
-                        <div class="text-sm text-slate-500 mb-4">
-                            <i class="fa-regular fa-clock mr-1"></i> {{ formatDate(project.created_at) }}
+                        <!-- ID + date -->
+                        <div class="flex items-center gap-2 mb-3">
+                            <span class="text-[11px] font-mono bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded">{{ project.id }}</span>
+                            <span class="text-xs text-slate-400"><i class="fa-regular fa-clock mr-0.5"></i>{{ formatDate(project.created_at) }}</span>
                         </div>
 
-                        <div class="grid grid-cols-2 gap-4 mb-4">
-                            <div class="bg-slate-50 p-3 rounded-lg">
-                                <div class="text-xs text-slate-500 uppercase font-bold">Layers</div>
-                                <div class="text-xl font-semibold text-slate-700">{{ project.layers_count }}</div>
+                        <!-- Metrics -->
+                        <div class="grid grid-cols-2 gap-3 mb-3">
+                            <div class="bg-slate-50 px-3 py-2 rounded-lg">
+                                <div class="text-[10px] text-slate-400 uppercase font-bold tracking-wide">Layers</div>
+                                <div class="text-lg font-semibold text-slate-700">{{ project.layers_count }}</div>
                             </div>
-                            <div class="bg-slate-50 p-3 rounded-lg">
-                                <div class="text-xs text-slate-500 uppercase font-bold">Attachments</div>
-                                <div class="text-xl font-semibold" :class="project.has_attachments ? 'text-green-600' : 'text-slate-400'">
+                            <div class="bg-slate-50 px-3 py-2 rounded-lg">
+                                <div class="text-[10px] text-slate-400 uppercase font-bold tracking-wide">Attachments</div>
+                                <div class="text-lg font-semibold" :class="project.has_attachments ? 'text-emerald-600' : 'text-slate-300'">
                                     <i :class="project.has_attachments ? 'fa-solid fa-check' : 'fa-solid fa-xmark'"></i>
                                 </div>
                             </div>
                         </div>
-                    </div>
-                    <div class="bg-slate-50 px-5 py-3 border-t border-slate-100 flex justify-between items-center">
-                        <div class="flex items-center gap-3">
-                            <button @click="openObserve(project)"
-                                class="text-sm text-violet-600 hover:text-violet-800 font-medium flex items-center gap-1.5 transition-colors">
-                                <i class="fa-solid fa-sitemap"></i> Observe
-                            </button>
-                            <button @click="openDataCube(project)"
-                                class="text-sm text-emerald-600 hover:text-emerald-800 font-medium flex items-center gap-1.5 transition-colors">
-                                <i class="fa-solid fa-cube"></i> Data Cube
+
+                        <!-- Cube badge (if exists) -->
+                        <div v-if="projectsCube[project.id]">
+                            <button @click="openDataCubeViewer(project.id)"
+                                class="text-[11px] bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 px-2 py-0.5 rounded-full font-medium flex items-center gap-1 transition-colors">
+                                <i class="fa-solid fa-cube text-[9px]"></i> Cube ready — view artifacts
                             </button>
                         </div>
-                        <button @click="deleteProject(project.id)" class="text-slate-400 hover:text-red-600 transition-colors">
-                            <i class="fa-regular fa-trash-can"></i>
+                    </div>
+
+                    <!-- Card footer actions -->
+                    <div class="bg-slate-50 px-5 py-2.5 border-t border-slate-100 flex items-center gap-4">
+                        <button @click="openObserve(project)"
+                            class="text-sm text-violet-600 hover:text-violet-800 font-medium flex items-center gap-1.5 transition-colors">
+                            <i class="fa-solid fa-sitemap text-xs"></i> Observe
+                        </button>
+                        <button @click="openDataCube(project)"
+                            class="text-sm text-emerald-600 hover:text-emerald-800 font-medium flex items-center gap-1.5 transition-colors">
+                            <i class="fa-solid fa-cube text-xs"></i> Data Cube
                         </button>
                     </div>
                 </div>
@@ -200,7 +206,7 @@
                     </button>
                 </div>
 
-                <form @submit.prevent="uploadProject" class="p-6 space-y-4">
+                <form @submit.prevent="uploadProject" class="p-6 space-y-4" novalidate>
                     <!-- Project ID -->
                     <div>
                         <label class="block text-sm font-medium text-slate-700 mb-1">Project ID (Slug)</label>
@@ -209,11 +215,24 @@
                         <p class="text-xs text-slate-500 mt-1">Only lowercase letters, numbers, hyphens.</p>
                     </div>
 
-                    <!-- GDB File -->
+                    <!-- GDB File — drop zone -->
                     <div>
                         <label class="block text-sm font-medium text-slate-700 mb-1">Geodatabase (.gdb as .zip) <span class="text-red-500">*</span></label>
-                        <input ref="gdbInput" type="file" accept=".zip" required
-                            class="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100">
+                        <div class="drop-zone"
+                            :class="{ 'drop-zone--over': gdbDragOver, 'drop-zone--filled': gdbFile }"
+                            @dragover.prevent="gdbDragOver = true"
+                            @dragleave.prevent="gdbDragOver = false"
+                            @drop.prevent="onGdbDrop($event)"
+                            @click="$refs.gdbInput.click()">
+                            <i class="fa-solid fa-cloud-arrow-up text-xl"
+                               :class="gdbFile ? 'text-emerald-500' : 'text-slate-300'"></i>
+                            <span class="text-sm" :class="gdbFile ? 'text-emerald-700 font-medium' : 'text-slate-500'">
+                                {{ gdbFile ? gdbFile.name : 'Drop .zip here or click to select' }}
+                            </span>
+                            <span v-if="!gdbFile" class="text-xs text-slate-400">GeoDatabase zipped archive</span>
+                        </div>
+                        <input ref="gdbInput" type="file" accept=".zip" class="hidden"
+                            @change="gdbFile = $event.target.files[0]">
                     </div>
 
                     <!-- APRX File -->
@@ -528,42 +547,54 @@
                     </form>
 
                     <!-- Progress / Done / Failed state -->
-                    <div v-else class="p-6 space-y-6">
-                        <!-- Stage label -->
+                    <div v-else class="p-6 space-y-5">
+                        <!-- Status header -->
                         <div class="flex items-center gap-3">
                             <i v-if="dataCubeStatus === 'running'" class="fa-solid fa-circle-notch fa-spin text-emerald-500 text-xl"></i>
                             <i v-else-if="dataCubeStatus === 'done'" class="fa-solid fa-circle-check text-emerald-500 text-xl"></i>
                             <i v-else class="fa-solid fa-circle-exclamation text-red-500 text-xl"></i>
                             <span class="text-slate-800 font-medium">
-                                <template v-if="dataCubeStatus === 'running'">Running: <span class="text-emerald-700">{{ dataCubeStage }}</span></template>
+                                <template v-if="dataCubeStatus === 'running'">{{ dataCubeProgressLabel }}</template>
                                 <template v-else-if="dataCubeStatus === 'done'">Pipeline completed successfully</template>
                                 <template v-else>Pipeline failed</template>
                             </span>
                         </div>
 
-                        <!-- Progress bar -->
+                        <!-- Stage pills -->
+                        <div class="flex flex-wrap gap-1.5">
+                            <span v-for="(stage, i) in DC_STAGES" :key="stage" class="dc-stage-pill"
+                                :class="{
+                                    'bg-emerald-100 text-emerald-700': i < dataCubeStageIndex || dataCubeStatus === 'done',
+                                    'bg-blue-500 text-white': i === dataCubeStageIndex && dataCubeStatus === 'running',
+                                    'bg-red-100 text-red-600': i === dataCubeStageIndex && dataCubeStatus === 'failed',
+                                    'bg-slate-100 text-slate-400': (i > dataCubeStageIndex && dataCubeStatus !== 'done') || (dataCubeStageIndex < 0 && dataCubeStatus !== 'done'),
+                                }">
+                                <i v-if="i < dataCubeStageIndex || dataCubeStatus === 'done'" class="fa-solid fa-check text-[9px] mr-0.5"></i>
+                                {{ DC_STAGE_LABELS[stage] || stage }}
+                            </span>
+                        </div>
+
+                        <!-- Progress bar + elapsed time -->
                         <div>
-                            <div class="flex justify-between text-xs text-slate-500 mb-1">
-                                <span>{{ dataCubeProgressLabel }}</span>
+                            <div class="flex items-center justify-between text-xs text-slate-400 mb-1.5">
                                 <span>{{ dataCubeProgress }}%</span>
-                            </div>
-                            <div class="w-full bg-slate-100 rounded-full h-3 overflow-hidden">
-                                <div class="h-3 rounded-full transition-all duration-500"
-                                    :class="dataCubeStatus === 'failed' ? 'bg-red-500' : 'bg-emerald-500'"
-                                    :style="{ width: dataCubeProgress + '%' }"></div>
-                            </div>
-                            <div class="flex justify-between mt-2">
-                                <span v-for="(s, i) in DC_STAGES" :key="s"
-                                    class="text-[10px] text-slate-400"
-                                    :class="dataCubeStageIndex >= i ? 'text-emerald-600 font-medium' : ''">
-                                    {{ s }}
+                                <span v-if="dataCubeStatus === 'running'">
+                                    <i class="fa-regular fa-clock mr-0.5"></i>{{ dcElapsedLabel }}
                                 </span>
+                                <span v-else-if="dataCubeStatus !== null" class="text-slate-400">
+                                    <i class="fa-regular fa-clock mr-0.5"></i>{{ dcElapsedLabel }}
+                                </span>
+                            </div>
+                            <div class="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
+                                <div class="h-1.5 rounded-full transition-all duration-700"
+                                    :class="dataCubeStatus === 'failed' ? 'bg-red-400' : 'bg-emerald-500'"
+                                    :style="{ width: dataCubeProgress + '%' }"></div>
                             </div>
                         </div>
 
                         <!-- Error -->
                         <div v-if="dataCubeStatus === 'failed' && dataCubeError"
-                            class="bg-red-50 text-red-700 p-3 rounded-lg text-sm">
+                            class="bg-red-50 text-red-700 p-3 rounded-lg text-sm font-mono break-all">
                             {{ dataCubeError }}
                         </div>
 
@@ -576,6 +607,35 @@
                         </div>
                     </div>
                 </div>
+            </div>
+        </div>
+
+        <!-- ── Delete Confirmation Modal ── -->
+        <div v-if="deleteTarget" class="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 backdrop-blur-sm">
+            <div class="bg-white rounded-xl shadow-xl p-6 w-80">
+                <h3 class="text-base font-semibold text-slate-900 mb-1">Delete project?</h3>
+                <p class="text-sm text-slate-600 mb-1">
+                    <strong class="text-slate-800">{{ deleteTarget.name || deleteTarget.id }}</strong> will be permanently removed.
+                </p>
+                <p class="text-xs text-slate-400 mb-5">This action cannot be undone.</p>
+                <div class="flex gap-2 justify-end">
+                    <button @click="cancelDelete"
+                        class="px-3 py-1.5 text-sm rounded-lg bg-slate-100 hover:bg-slate-200 font-medium transition-colors">
+                        Cancel
+                    </button>
+                    <button @click="doDelete"
+                        class="px-3 py-1.5 text-sm rounded-lg bg-red-500 hover:bg-red-600 text-white font-medium transition-colors">
+                        Delete
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ── Toast notifications ── -->
+        <div class="fixed bottom-5 right-5 z-[70] flex flex-col gap-2" style="min-width:280px; max-width:360px; pointer-events:none">
+            <div v-for="t in toasts" :key="t.id" class="toast" :class="t.type">
+                <i :class="toastIcon(t.type)"></i>
+                <span>{{ t.msg }}</span>
             </div>
         </div>
 

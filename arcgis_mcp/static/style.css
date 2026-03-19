@@ -2,6 +2,59 @@
 .fade-enter-active, .fade-leave-active { transition: opacity 0.3s; }
 .fade-enter-from, .fade-leave-to { opacity: 0; }
 
+/* ── Toast notifications ────────────────────────────────────────────────── */
+.toast {
+    padding: 10px 14px; border-radius: 8px; font-size: 13px; line-height: 1.4;
+    display: flex; align-items: flex-start; gap: 9px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.13);
+    animation: toast-in 0.22s ease;
+    pointer-events: auto;
+}
+.toast.success { background: #ecfdf5; border-left: 3px solid #10b981; color: #065f46; }
+.toast.error   { background: #fef2f2; border-left: 3px solid #ef4444; color: #7f1d1d; }
+.toast.info    { background: #eff6ff; border-left: 3px solid #3b82f6; color: #1e3a5f; }
+.toast.warn    { background: #fffbeb; border-left: 3px solid #f59e0b; color: #78350f; }
+.toast i       { margin-top: 1px; flex-shrink: 0; }
+@keyframes toast-in {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: none; }
+}
+
+/* ── Skeleton loaders ────────────────────────────────────────────────────── */
+.skeleton-card {
+    height: 178px; border-radius: 12px;
+    background: linear-gradient(90deg, #f1f5f9 25%, #e8edf3 50%, #f1f5f9 75%);
+    background-size: 200% 100%;
+    animation: skeleton-shimmer 1.5s ease-in-out infinite;
+}
+@keyframes skeleton-shimmer {
+    0%   { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
+
+/* ── Drop zone ───────────────────────────────────────────────────────────── */
+.drop-zone {
+    border: 1.5px dashed #cbd5e1; border-radius: 10px;
+    padding: 18px 16px; cursor: pointer;
+    display: flex; flex-direction: column; align-items: center; gap: 5px;
+    transition: border-color 0.15s, background 0.15s;
+    text-align: center;
+}
+.drop-zone:hover   { border-color: #93c5fd; background: #f0f9ff; }
+.drop-zone--over   { border-color: #3b82f6; background: #eff6ff; }
+.drop-zone--filled { border-color: #6ee7b7; border-style: solid; background: #f0fdf4; }
+
+/* ── Project cards ───────────────────────────────────────────────────────── */
+.project-card { border-left: 3px solid #e2e8f0; }
+.project-card.has-cube { border-left-color: #10b981; }
+
+/* ── DC stage pills ──────────────────────────────────────────────────────── */
+.dc-stage-pill {
+    padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 500;
+    transition: background 0.2s, color 0.2s;
+    white-space: nowrap;
+}
+
 /* JSON Tree */
 .json-tree { font-family: 'Menlo', 'Monaco', 'Consolas', monospace; font-size: 13px; line-height: 1.6; }
 .json-node { position: relative; }
