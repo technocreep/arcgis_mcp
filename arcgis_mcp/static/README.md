@@ -13,6 +13,8 @@ static/
     ├── index.html
     ├── viewer.js
     ├── viewer.css
+    ├── lightbox.js              # Lightbox для изображений в dashboard-отчётах
+    ├── dashboard-override.css   # CSS-переопределения для инжектируемых HTML-страниц
     └── README.md   # описание V-блоков и источников данных
 ```
 
@@ -20,35 +22,80 @@ static/
 
 ## index.html + app.js — GIS Data Hub Portal
 
-Vue 3 SPA. Доступен по адресу `http://localhost:10003/ui/`.
+Vue 3 (CDN, Composition API) SPA на Tailwind CSS + Font Awesome 6. Доступен по адресу `http://localhost:10003/ui/`.
 
 ### Экраны и функции
 
 **Авторизация**
 - Форма входа с Basic Auth → `/api/auth`
-- Токен хранится в `localStorage`, подставляется в заголовки запросов
+- Учётные данные хранятся в `localStorage`, подставляются в заголовки запросов
 
 **Список проектов** (`/api/projects`)
-- Карточки всех загруженных проектов
-- Индикатор наличия Data Cube артефактов (иконка, запрос к `/api/projects/{id}/datacube`)
-- Кнопки: Observe, Data Cube, Delete
+- Карточки всех загруженных проектов со skeleton-анимацией при загрузке
+- Цветная полоска левого бордера: emerald — если есть Data Cube артефакты, slate — иначе
+- Индикаторы прямо на карточке:
+  - спиннер + текущий этап + таймер — пока задача Data Cube запущена
+  - кнопка «Cube ready» — после успешного завершения
+- Кнопки действий: Observe (JSON), Data Cube, Delete (иконка в шапке карточки)
 
 **Загрузка проекта** (`/api/upload`)
-- Поля: `project_id`, `name`, `.gdb` файл, `.aprx` файл (опционально)
-- Прогресс-бар загрузки
+- Поля: `project_id`, `.gdb` (drag-and-drop зона или клик), `.aprx` (опционально)
+- Двухфазный прогресс-бар:
+  1. Uploading — реальный процент через `XMLHttpRequest.upload.onprogress`
+  2. Processing… — неопределённый shimmer-прогресс пока сервер выполняет пайплайн
 
 **Observe** (модальное окно)
-- Полный `manifest.json` проекта с интерактивным JSON-деревом
-- Список слоёв, метаданные, качество
+- Полный `manifest.json` проекта с интерактивным JSON-деревом (сворачиваемые ноды)
 
 **Data Cube** (модальное окно)
-- Запуск ML-пайплайна: `POST /api/datacube/jobs` с параметрами `project_id`, `cube_params`, `label_params`, `train_params`
-- Polling статуса задачи: `GET /api/datacube/jobs/{jobId}` каждые 2 с
-- Прогресс-бар по стадиям пайплайна: `grid → features → labels → train → interpret → upload`
-- После завершения: кнопка открыть Data Cube Viewer в новой вкладке
+- Запуск ML-пайплайна: `POST /api/datacube/jobs`
+- Polling статуса: `GET /api/datacube/jobs/{jobId}` каждые 2 с
+- Закрытие модалки **не прерывает** задачу — polling продолжается фоново
+- Визуальные этапы: `grid → features → qa → labels → training → evaluation → visualization → upload`
+  - emerald = завершён, синий = активен, серый = ожидание, красный = ошибка
+- Счётчик прошедшего времени (elapsed timer)
+- Кнопки: Close (скрывает модалку), Run again (сброс + новый запуск), View Artifacts
 
 **Delete** (`DELETE /api/projects/{id}`)
-- Подтверждение перед удалением
+- Встроенная модалка подтверждения (вместо `window.confirm()`)
+
+**Toast-уведомления**
+- Заменяют все `window.alert()`: success / error / info / warn
+- Автоматически скрываются через 4 секунды
+
+**Общее**
+- Все модалки закрываются по `Escape` (кроме Data Cube во время активного расчёта)
+- `Cache-Control: no-cache` на все `/ui/*` маршруты — достаточно обычного F5 для получения обновлений
+
+---
+
+## app.js — ключевые refs и функции
+
+| Ref / функция | Назначение |
+|---|---|
+| `toasts` / `addToast(msg, type)` | Toast-система |
+| `uploadProgress`, `uploadPhase` | Прогресс загрузки файла |
+| `gdbFile`, `gdbDragOver`, `onGdbDrop` | Drag-and-drop зона |
+| `deleteTarget`, `confirmDelete`, `doDelete` | Модалка удаления |
+| `activeJobProjectId` | Глобальный ID проекта с активной задачей |
+| `dataCubeStage`, `dcElapsed`, `dcElapsedLabel` | Прогресс и таймер Data Cube |
+| `closeDataCube()` | Скрыть модалку, не останавливая задачу |
+| `resetDataCube()` | Полный сброс состояния (для «Run again») |
+| `isJobRunning(id)`, `cubeReady(id)` | Состояние задачи для карточек |
+| `pollDataCube(projectId, jobId)` | Polling с обновлением стадии |
+
+---
+
+## style.css — ключевые классы
+
+| Класс | Назначение |
+|---|---|
+| `.toast` + модификаторы `.success/.error/.info/.warn` | Toast-уведомления |
+| `.skeleton-card` | Shimmer-карточка при загрузке списка проектов |
+| `.skeleton-progress` | Amber shimmer для фазы Processing в upload |
+| `.drop-zone` / `.drop-zone--over` / `.drop-zone--filled` | Зона drag-and-drop |
+| `.project-card` / `.project-card.has-cube` | Карточка с цветным бордером |
+| `.dc-stage-pill` | Пилюли этапов Data Cube прогресса |
 
 ---
 
@@ -56,6 +103,8 @@ Vue 3 SPA. Доступен по адресу `http://localhost:10003/ui/`.
 
 Отдельная страница, открывается в новой вкладке: `/ui/datacube/?project_id={id}`
 
-Загружает ML-артефакты из MinIO через `/api/projects/{id}/datacube/files/{path}` и отображает 11 визуализационных блоков (V0–V10).
+Загружает ML-артефакты через `/api/projects/{id}/datacube/files/{path}` и отображает 11 визуализационных блоков (V0–V11).
+
+**Lightbox:** все HTML-страницы dashboard-отчётов (подаваемые через `datacube_file_serve`) получают инжекцию `lightbox.js` и `dashboard-override.css`. Клик по любому изображению с атрибутом `data-lb` открывает его в полноэкранном оверлее с навигацией стрелками и Escape.
 
 Подробное описание блоков и источников данных — в [datacube/README.md](datacube/README.md).

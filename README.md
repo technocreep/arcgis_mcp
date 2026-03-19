@@ -548,6 +548,19 @@ plot_layer() / plot_overlay() / ...
 
 ---
 
+## GIS Data Hub — веб-портал (Ingestion API)
+
+`ingestion/app.py` — FastAPI-сервис (`gis-loader`), доступный на `http://localhost:10003`.
+
+- **Веб-портал:** `/ui/` — Vue 3 SPA (`static/index.html` + `app.js`). Управление проектами: загрузка, просмотр манифеста, запуск Data Cube, удаление.
+- **Авторизация:** Basic Auth + session cookie (`gis_session`, TTL 8 ч). Все write-эндпоинты и файлы артефактов защищены.
+- **Загрузка проектов:** `POST /api/upload` — принимает `.zip` с GDB и опциональный `.aprx`, запускает ingestion pipeline синхронно.
+- **Прокси Data Cube:** `POST /api/datacube/jobs`, `GET /api/datacube/jobs/{id}` — проксируют запросы к сервису `data-cube`.
+- **Артефакты:** `GET /api/projects/{id}/datacube/files/{path}` — раздаёт файлы результатов пайплайна с Basic Auth / session cookie / `?_auth=` query-параметром. HTML-файлы получают инжекцию `dashboard-override.css` и `lightbox.js`.
+- **Cache-Control:** все `/ui/*` маршруты отдаются с `no-cache, must-revalidate` — достаточно обычного F5 для обновлений.
+
+---
+
 ## REST API (Open WebUI)
 
 `api_server/server.py` оборачивает все MCP-инструменты в FastAPI эндпоинты для интеграции с Open WebUI или прямого вызова через HTTP.
@@ -621,7 +634,7 @@ Data Cube — результат запуска ML-пайплайна (`run_pipe
 
 ### Docker-сервис data-cube
 
-Сервис `data-cube` в `docker-compose.yml` запускает FastAPI-сервер ML-пайплайна. Принимает вызов `run_pipeline` от `gis-loader` после загрузки проекта.
+Сервис `data-cube` в `docker-compose.yml` запускает FastAPI-сервер ML-пайплайна (`Data_cube/api/server.py`). Принимает `POST /jobs` от `gis-loader` и запускает полный experiment pipeline.
 
 ```yaml
 data-cube:
@@ -640,6 +653,17 @@ data-cube:
 ```bash
 CACHE_BUST=$(date +%s) docker compose up --build data-cube -d
 ```
+
+**Горячая замена server.py без пересборки образа** (через Makefile):
+```bash
+make reload-cube
+# docker cp Data_cube/api/server.py data-cube-server:/app/data_cube/api/server.py
+# docker restart data-cube-server
+```
+
+**Отслеживание прогресса по стадиям** реализовано в `Data_cube/api/server.py` через обёртки `_tracked(fn, stage_name)` над каждой функцией пайплайна. При вызове обёртки вызывается `_set_stage(job_id, stage_name)`, что обновляет поле `stage` в `_jobs`. Клиент читает его через polling `GET /jobs/{job_id}`.
+
+Порядок стадий: `grid` → `features` → `qa` → `labels` → `training` → `evaluation` → `visualization` → `upload`.
 
 ---
 

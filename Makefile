@@ -104,12 +104,6 @@ reload-loader:
 reload-mcp:
 	$(COMPOSE) restart gis-mcp
 
-# Скопировать локальный server.py в контейнер и перезапустить
-# Нужно при: правках Data_cube/api/server.py (код не монтируется, клонируется из git)
-.PHONY: reload-cube
-reload-cube:
-	docker cp ../Data_cube/api/server.py data-cube-server:/app/data_cube/api/server.py
-	docker restart data-cube-server
 
 # ─── Логи ─────────────────────────────────────────────────────────────────────
 
