@@ -125,6 +125,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Статические UI-файлы не кэшировать — достаточно обычного обновления страницы
+@app.middleware("http")
+async def no_cache_ui(request: Request, call_next):
+    response = await call_next(request)
+    if request.url.path.startswith("/ui/"):
+        response.headers["Cache-Control"] = "no-cache, must-revalidate"
+    return response
+
 # Статика (Frontend)
 static_dir = Path(__file__).parent.parent / "static"
 # static_dir.mkdir(exist_ok=True)

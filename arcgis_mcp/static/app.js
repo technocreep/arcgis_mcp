@@ -19,7 +19,6 @@ function buildJsonNode(key, value, depth, defaultExpanded) {
         const bracket = isArr ? ['[', ']'] : ['{', '}']
         const expanded = { value: defaultExpanded }
 
-        // Toggle row
         const row = document.createElement('div')
         row.className = 'json-toggle py-0.5'
 
@@ -47,23 +46,18 @@ function buildJsonNode(key, value, depth, defaultExpanded) {
 
         const preview = document.createElement('span')
         preview.className = 'json-meta ml-1'
-        preview.textContent = expanded.value
-            ? ''
-            : (isArr ? `${count} items` : `${count} keys`)
+        preview.textContent = expanded.value ? '' : (isArr ? `${count} items` : `${count} keys`)
         row.appendChild(preview)
 
         wrapper.appendChild(row)
 
-        // Children container
         const children = document.createElement('div')
         children.className = 'json-children'
         children.style.display = expanded.value ? 'block' : 'none'
 
-        // Rebuild to avoid duplication
-        children.innerHTML = ''
         childKeys.forEach((k) => {
-            const v = isArr ? value[k] : value[k]
-            const childNode = buildJsonNode(isArr ? k : k, v, depth + 1, depth < 1)
+            const v = value[k]
+            const childNode = buildJsonNode(k, v, depth + 1, depth < 1)
             children.appendChild(childNode)
         })
 
@@ -74,29 +68,22 @@ function buildJsonNode(key, value, depth, defaultExpanded) {
         wrapper.appendChild(children)
         wrapper.appendChild(closeLine)
 
-        // Toggle handler
         row.addEventListener('click', () => {
             expanded.value = !expanded.value
             arrow.textContent = expanded.value ? '▼' : '▶'
             children.style.display = expanded.value ? 'block' : 'none'
-            preview.textContent = expanded.value
-                ? ''
-                : (isArr ? `${count} items` : `${count} keys`)
+            preview.textContent = expanded.value ? '' : (isArr ? `${count} items` : `${count} keys`)
         })
 
-        // Store references for expand/collapse all
         wrapper.dataset.expandable = 'true'
         wrapper._toggleExpand = (forceExpand) => {
             expanded.value = forceExpand
             arrow.textContent = expanded.value ? '▼' : '▶'
             children.style.display = expanded.value ? 'block' : 'none'
-            preview.textContent = expanded.value
-                ? ''
-                : (isArr ? `${count} items` : `${count} keys`)
+            preview.textContent = expanded.value ? '' : (isArr ? `${count} items` : `${count} keys`)
         }
 
     } else {
-        // Leaf node
         const row = document.createElement('div')
         row.className = 'py-0.5 flex flex-wrap gap-1'
 
@@ -246,6 +233,8 @@ createApp({
         const loading = ref(true)
         const showUploadModal = ref(false)
         const uploading = ref(false)
+        const uploadProgress = ref(0)   // 0-100, upload transfer progress
+        const uploadPhase = ref(null)   // null | 'uploading' | 'processing'
         const error = ref(null)
 
         const form = ref({ id: '' })
@@ -287,11 +276,14 @@ createApp({
             }
         }
 
-        const uploadProject = async () => {
+        // Upload with XHR for real progress tracking
+        const uploadProject = () => {
             const gdb = gdbFile.value || gdbInput.value?.files[0]
             if (!gdb) { error.value = 'Please select a .gdb zip archive.'; return }
 
             uploading.value = true
+            uploadProgress.value = 0
+            uploadPhase.value = 'uploading'
             error.value = null
 
             const formData = new FormData()
@@ -300,30 +292,46 @@ createApp({
             if (aprxInput.value?.files[0]) formData.append('aprx', aprxInput.value.files[0])
             if (atbxInput.value?.files[0]) formData.append('atbx', atbxInput.value.files[0])
 
-            try {
-                const res = await fetch('/api/upload', {
-                    method: 'POST',
-                    headers: { Authorization: authHeader.value },
-                    body: formData
-                })
-                if (res.status === 401) throw new Error('Invalid credentials. Please re-authenticate (lock icon).')
-                if (!res.ok) {
-                    const err = await res.json().catch(() => ({}))
-                    throw new Error(err.detail || 'Upload failed')
+            const xhr = new XMLHttpRequest()
+
+            xhr.upload.onprogress = (e) => {
+                if (e.lengthComputable) {
+                    uploadProgress.value = Math.round(e.loaded / e.total * 100)
+                    if (uploadProgress.value >= 100) uploadPhase.value = 'processing'
                 }
-                showUploadModal.value = false
-                form.value.id = ''
-                gdbFile.value = null
-                if (gdbInput.value) gdbInput.value.value = ''
-                if (aprxInput.value) aprxInput.value.value = ''
-                if (atbxInput.value) atbxInput.value.value = ''
-                addToast('Project uploaded successfully.', 'success')
-                await fetchProjects()
-            } catch (e) {
-                error.value = e.message
-            } finally {
-                uploading.value = false
             }
+
+            xhr.onload = async () => {
+                uploading.value = false
+                uploadPhase.value = null
+                if (xhr.status === 401) {
+                    error.value = 'Invalid credentials. Please re-authenticate.'
+                } else if (xhr.status >= 200 && xhr.status < 300) {
+                    showUploadModal.value = false
+                    form.value.id = ''
+                    gdbFile.value = null
+                    if (gdbInput.value) gdbInput.value.value = ''
+                    if (aprxInput.value) aprxInput.value.value = ''
+                    if (atbxInput.value) atbxInput.value.value = ''
+                    addToast('Project uploaded successfully.', 'success')
+                    await fetchProjects()
+                } else {
+                    try {
+                        const err = JSON.parse(xhr.responseText)
+                        error.value = err.detail || 'Upload failed'
+                    } catch { error.value = 'Upload failed' }
+                }
+            }
+
+            xhr.onerror = () => {
+                uploading.value = false
+                uploadPhase.value = null
+                error.value = 'Network error.'
+            }
+
+            xhr.open('POST', '/api/upload')
+            if (authHeader.value) xhr.setRequestHeader('Authorization', authHeader.value)
+            xhr.send(formData)
         }
 
         // ── Delete confirmation ──
@@ -388,13 +396,22 @@ createApp({
         // ── Data Cube ──
         const DC_STAGES = ['grid', 'features', 'qa', 'labels', 'training', 'evaluation', 'visualization']
         const DC_STAGE_LABELS = {
-            grid: 'Building grid',
-            features: 'Computing features',
-            qa: 'Quality assurance',
-            labels: 'Assigning labels',
-            training: 'Training model',
-            evaluation: 'Evaluating model',
-            visualization: 'Generating maps',
+            grid:           'Grid',
+            features:       'Features',
+            qa:             'QA',
+            labels:         'Labels',
+            training:       'Training',
+            evaluation:     'Evaluation',
+            visualization:  'Visualization',
+        }
+        const DC_STAGE_LABELS_LONG = {
+            grid:           'Building grid',
+            features:       'Computing features',
+            qa:             'Quality assurance',
+            labels:         'Assigning labels',
+            training:       'Training model',
+            evaluation:     'Evaluating model',
+            visualization:  'Generating maps',
         }
 
         const showDataCubeModal = ref(false)
@@ -404,42 +421,35 @@ createApp({
         const dataCubeError = ref(null)
         const dcPollInterval = ref(null)
 
+        // Which project currently has a running/just-finished job (survives modal close)
+        const activeJobProjectId = ref(null)
+
         // Elapsed time timer
         const dcElapsed = ref(0)
-        const dcTimer = ref(null)
+        const _dcTimer = { id: null }  // non-reactive, plain object
         const dcElapsedLabel = computed(() => {
             const m = Math.floor(dcElapsed.value / 60)
             const s = dcElapsed.value % 60
             return m > 0 ? `${m}m ${s}s` : `${s}s`
         })
 
+        const _stopTimer = () => {
+            if (_dcTimer.id) { clearInterval(_dcTimer.id); _dcTimer.id = null }
+        }
+        const _startTimer = () => {
+            _stopTimer()
+            _dcTimer.id = setInterval(() => dcElapsed.value++, 1000)
+        }
+
         const dcDefaultForm = () => ({
-            // Primary
-            step_m: 500,
-            pad: 0.10,
-            pos_radius_m: 5000,
-            neg_ratio: 5,
-            ore_layer: '',
-            seed: 42,
-            model_type: 'catboost',
-            splits: 3,
-            group_block_m: 50000,
-            rs_enabled: true,
-            rs_reuse_existing: true,
-            // Advanced — Features
-            fault_radius_m: 10000,
-            contact_radius_m: 10000,
-            top_fault_classes: 10,
-            fault_radii_m: '',
-            contact_radii_m: '',
-            // Advanced — Label Profiles
-            auto_discover: true,
-            discovery_field: '',
-            max_auto_profiles: 6,
-            // Advanced — Visualization
-            geometry_mode: 'auto',
-            include_gis_layers: false,
-            // Advanced — Options
+            step_m: 500, pad: 0.10,
+            pos_radius_m: 5000, neg_ratio: 5, ore_layer: '', seed: 42,
+            model_type: 'catboost', splits: 3, group_block_m: 50000,
+            rs_enabled: true, rs_reuse_existing: true,
+            fault_radius_m: 10000, contact_radius_m: 10000, top_fault_classes: 10,
+            fault_radii_m: '', contact_radii_m: '',
+            auto_discover: true, discovery_field: '', max_auto_profiles: 6,
+            geometry_mode: 'auto', include_gis_layers: false,
             run_interpretability: true,
         })
 
@@ -452,8 +462,7 @@ createApp({
                 fault_radius_m: 10000, contact_radius_m: 10000, top_fault_classes: 10,
                 fault_radii_m: '', contact_radii_m: '',
                 auto_discover: true, discovery_field: 'N_TYPE', max_auto_profiles: 6,
-                geometry_mode: 'auto', include_gis_layers: false,
-                run_interpretability: true,
+                geometry_mode: 'auto', include_gis_layers: false, run_interpretability: true,
             },
             kolpino: {
                 step_m: 250, pad: 0.10,
@@ -463,8 +472,7 @@ createApp({
                 fault_radius_m: 10000, contact_radius_m: 10000, top_fault_classes: 10,
                 fault_radii_m: '', contact_radii_m: '',
                 auto_discover: true, discovery_field: '', max_auto_profiles: 6,
-                geometry_mode: 'auto', include_gis_layers: false,
-                run_interpretability: true,
+                geometry_mode: 'auto', include_gis_layers: false, run_interpretability: true,
             },
         }
 
@@ -480,18 +488,24 @@ createApp({
 
         const dataCubeProgress = computed(() => {
             if (dataCubeStatus.value === 'done') return 100
-            if (dataCubeStatus.value === 'failed') return dataCubeStageIndex.value >= 0
-                ? Math.round(((dataCubeStageIndex.value + 1) / DC_STAGES.length) * 100)
-                : 0
             if (dataCubeStageIndex.value < 0) return 0
+            if (dataCubeStatus.value === 'failed')
+                return Math.round(((dataCubeStageIndex.value + 1) / DC_STAGES.length) * 100)
             return Math.round(((dataCubeStageIndex.value + 1) / DC_STAGES.length) * 100)
         })
 
         const dataCubeProgressLabel = computed(() =>
-            dataCubeStage.value ? (DC_STAGE_LABELS[dataCubeStage.value] || dataCubeStage.value) : ''
+            dataCubeStage.value ? (DC_STAGE_LABELS_LONG[dataCubeStage.value] || dataCubeStage.value) : ''
         )
 
         const openDataCube = (project) => {
+            // If this project already has an active/finished job, show its state
+            if (activeJobProjectId.value === project.id && dataCubeStatus.value !== null) {
+                dataCubeProject.value = project
+                showDataCubeModal.value = true
+                return
+            }
+            // Fresh open — show form
             dataCubeProject.value = project
             dataCubeStatus.value = null
             dataCubeStage.value = null
@@ -501,12 +515,20 @@ createApp({
             showDataCubeModal.value = true
         }
 
+        // Closing modal does NOT stop the job — polling continues in background
         const closeDataCube = () => {
-            if (dcPollInterval.value) clearInterval(dcPollInterval.value)
-            dcPollInterval.value = null
-            if (dcTimer.value) clearInterval(dcTimer.value)
-            dcTimer.value = null
             showDataCubeModal.value = false
+        }
+
+        // Force-reset when user wants to start a new job on same project
+        const resetDataCube = () => {
+            if (dcPollInterval.value) { clearInterval(dcPollInterval.value); dcPollInterval.value = null }
+            _stopTimer()
+            activeJobProjectId.value = null
+            dataCubeStatus.value = null
+            dataCubeStage.value = null
+            dataCubeError.value = null
+            dcElapsed.value = 0
         }
 
         const parseRadii = (str) => str
@@ -514,15 +536,16 @@ createApp({
             : []
 
         const submitDataCube = async () => {
+            const projectId = dataCubeProject.value.id
             dataCubeStatus.value = 'running'
             dataCubeStage.value = 'grid'
             dataCubeError.value = null
+            activeJobProjectId.value = projectId
             dcElapsed.value = 0
-            dcTimer.value = setInterval(() => dcElapsed.value++, 1000)
+            _startTimer()
 
             const payload = {
-                project_id: dataCubeProject.value.id,
-                // Primary
+                project_id: projectId,
                 step_m: dcForm.value.step_m,
                 pad: dcForm.value.pad,
                 pos_radius_m: dcForm.value.pos_radius_m,
@@ -534,17 +557,14 @@ createApp({
                 ore_layer: dcForm.value.ore_layer || null,
                 rs_enabled: dcForm.value.rs_enabled,
                 rs_reuse_existing: dcForm.value.rs_reuse_existing,
-                // Advanced — Features
                 fault_radius_m: dcForm.value.fault_radius_m,
                 contact_radius_m: dcForm.value.contact_radius_m,
                 top_fault_classes: dcForm.value.top_fault_classes,
                 fault_radii_m: parseRadii(dcForm.value.fault_radii_m),
                 contact_radii_m: parseRadii(dcForm.value.contact_radii_m),
-                // Advanced — Label Profiles
                 auto_discover: dcForm.value.auto_discover,
                 discovery_field: dcForm.value.discovery_field || null,
                 max_auto_profiles: dcForm.value.max_auto_profiles,
-                // Advanced — Visualization & Options
                 geometry_mode: dcForm.value.geometry_mode,
                 include_gis_layers: dcForm.value.include_gis_layers,
                 run_interpretability: dcForm.value.run_interpretability,
@@ -561,54 +581,59 @@ createApp({
                     throw new Error(err.detail || 'Failed to start job')
                 }
                 const { job_id } = await res.json()
-                dcPollInterval.value = setInterval(() => pollDataCube(job_id), 3000)
+                // Poll every 3 s regardless of whether modal is open
+                dcPollInterval.value = setInterval(() => pollDataCube(projectId, job_id), 3000)
             } catch (e) {
                 dataCubeStatus.value = 'failed'
                 dataCubeError.value = e.message
-                clearInterval(dcTimer.value)
-                dcTimer.value = null
+                _stopTimer()
             }
         }
 
-        const pollDataCube = async (jobId) => {
+        const pollDataCube = async (projectId, jobId) => {
             try {
                 const res = await fetch(`/api/datacube/jobs/${jobId}`)
                 if (!res.ok) return
                 const data = await res.json()
-                dataCubeStage.value = data.stage || dataCubeStage.value
+                // Always update — even if modal is closed
+                if (data.stage) dataCubeStage.value = data.stage
                 if (data.status === 'done' || data.status === 'failed') {
                     dataCubeStatus.value = data.status
                     dataCubeError.value = data.error || null
                     clearInterval(dcPollInterval.value)
                     dcPollInterval.value = null
-                    clearInterval(dcTimer.value)
-                    dcTimer.value = null
-                    if (data.status === 'done' && dataCubeProject.value) {
-                        checkDatacubeStatus(dataCubeProject.value.id)
+                    _stopTimer()
+                    if (data.status === 'done') {
+                        checkDatacubeStatus(projectId)
                         addToast('Data Cube pipeline completed.', 'success')
-                    } else if (data.status === 'failed') {
+                    } else {
                         addToast('Data Cube pipeline failed.', 'error')
                     }
                 }
-            } catch { /* ignore transient errors */ }
+            } catch { /* ignore transient network errors */ }
         }
 
         const openDataCubeViewer = (projectId) => {
             window.open(`/ui/datacube/?project_id=${projectId}`, '_blank')
         }
 
+        // Project card computed helpers
+        const isJobRunning = (projectId) =>
+            activeJobProjectId.value === projectId && dataCubeStatus.value === 'running'
+
+        const cubeReady = (projectId) =>
+            projectsCube.value[projectId] && !isJobRunning(projectId)
+
         // ── Boot ──
         onMounted(async () => {
-            // Escape key — close active modal
+            // Escape key — close active modal (never kills DC job)
             document.addEventListener('keydown', e => {
                 if (e.key !== 'Escape') return
                 if (deleteTarget.value)         { cancelDelete(); return }
                 if (showObserveModal.value)      { showObserveModal.value = false; return }
                 if (showUploadModal.value)       { showUploadModal.value = false; return }
                 if (showAuthModal.value)         { showAuthModal.value = false; return }
-                if (showDataCubeModal.value && dataCubeStatus.value !== 'running') {
-                    closeDataCube()
-                }
+                if (showDataCubeModal.value)     { closeDataCube() }
             })
 
             if (authUser.value && authPass.value) {
@@ -619,14 +644,12 @@ createApp({
                         fetchProjects()
                         return
                     }
-                } catch { /* fall through to login screen */ }
-                // Stored credentials are invalid — clear them
+                } catch { /* fall through */ }
                 localStorage.removeItem('gis_auth_user')
                 localStorage.removeItem('gis_auth_pass')
                 authUser.value = ''
                 authPass.value = ''
             }
-            // Show login screen
             loading.value = false
         })
 
@@ -634,70 +657,34 @@ createApp({
             // toasts
             toasts, addToast, toastIcon,
             // auth
-            isAuthenticated,
-            authUser,
-            authHeader,
-            loginForm,
-            loginLoading,
-            loginError,
-            signIn,
-            showAuthModal,
-            authDraft,
-            authModalError,
-            authModalLoading,
-            openAuthModal,
-            saveCredentials,
+            isAuthenticated, authUser, authHeader,
+            loginForm, loginLoading, loginError, signIn,
+            showAuthModal, authDraft, authModalError, authModalLoading,
+            openAuthModal, saveCredentials,
             // projects
-            projects,
-            loading,
-            showUploadModal,
-            uploading,
-            error,
-            form,
-            gdbInput,
-            aprxInput,
-            atbxInput,
-            gdbDragOver,
-            gdbFile,
-            onGdbDrop,
-            fetchProjects,
-            uploadProject,
+            projects, loading,
+            showUploadModal, uploading, uploadProgress, uploadPhase,
+            error, form,
+            gdbInput, aprxInput, atbxInput,
+            gdbDragOver, gdbFile, onGdbDrop,
+            fetchProjects, uploadProject,
             // delete
-            deleteTarget,
-            confirmDelete,
-            cancelDelete,
-            doDelete,
+            deleteTarget, confirmDelete, cancelDelete, doDelete,
             formatDate,
             // observe
-            showObserveModal,
-            observeData,
-            observeLoading,
-            observeProject,
-            treeContainer,
-            openObserve,
-            treeExpandAll,
-            treeCollapseAll,
+            showObserveModal, observeData, observeLoading, observeProject,
+            treeContainer, openObserve, treeExpandAll, treeCollapseAll,
             // data cube
-            DC_STAGES,
-            DC_STAGE_LABELS,
-            showDataCubeModal,
-            dataCubeProject,
-            dataCubeStatus,
-            dataCubeStage,
-            dataCubeStageIndex,
-            dataCubeProgress,
-            dataCubeProgressLabel,
-            dataCubeError,
-            dcForm,
-            dcSelectedPreset,
-            loadDcPreset,
-            dcElapsed,
-            dcElapsedLabel,
-            openDataCube,
-            closeDataCube,
-            submitDataCube,
-            openDataCubeViewer,
-            projectsCube,
+            DC_STAGES, DC_STAGE_LABELS, DC_STAGE_LABELS_LONG,
+            showDataCubeModal, dataCubeProject,
+            dataCubeStatus, dataCubeStage, dataCubeStageIndex,
+            dataCubeProgress, dataCubeProgressLabel,
+            dataCubeError, dcElapsed, dcElapsedLabel,
+            dcForm, dcSelectedPreset, loadDcPreset,
+            activeJobProjectId,
+            openDataCube, closeDataCube, resetDataCube,
+            submitDataCube, openDataCubeViewer,
+            projectsCube, isJobRunning, cubeReady,
         }
     }
 }).mount('#app')
