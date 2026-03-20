@@ -74,6 +74,8 @@ def nl_query_to_cypher(query: str) -> tuple[str, str | None]:
     Returns:
         (cypher, error) — error=None если успешно.
     """
+    logger.info(f"Connection try to: {config.KG_LLM_BASE_URL} >>> {config.KG_LLM_MODEL}")
+
     if not config.KG_LLM_BASE_URL or not config.KG_LLM_MODEL:
         return "", "KG_LLM_BASE_URL или KG_LLM_MODEL не настроены"
 
