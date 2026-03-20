@@ -211,6 +211,43 @@ async def delete_project(project_id: str, _: str = Depends(require_auth)):
     return {"status": "deleted", "project_id": project_id}
 
 
+@app.post("/api/projects/{project_id}/kg/build")
+async def kg_build_project(project_id: str, _: str = Depends(require_auth)):
+    """Построить / перестроить KG для уже загруженного проекта.
+
+    Читает manifest.json с диска, индексирует Project/Layer/Field/Attachment
+    и PDF карточки изученности. Идемпотентен (использует MERGE).
+    """
+    project_path = Path(PROJECTS_DIR) / project_id
+    manifest_path = project_path / "manifest.json"
+    if not manifest_path.exists():
+        raise HTTPException(status_code=404, detail="Project or manifest not found")
+
+    import config as _cfg
+    if not _cfg.NEO4J_URI:
+        raise HTTPException(status_code=503, detail="NEO4J_URI not configured")
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    gdb_name = manifest.get("project", {}).get("source_files", {}).get("gdb", "")
+    gdb_path = str(project_path / "data" / gdb_name) if gdb_name else ""
+
+    from rag.kg_client import Neo4jClient
+    from rag.kg_builder import build_from_manifest, index_pdf_attachments
+
+    kg = Neo4jClient(_cfg.NEO4J_URI, _cfg.NEO4J_USER, _cfg.NEO4J_PASSWORD)
+    try:
+        build_from_manifest(manifest, project_id, kg)
+        if gdb_path and Path(gdb_path).exists():
+            index_pdf_attachments(project_id, gdb_path, manifest, kg)
+        rows = kg.execute(
+            "MATCH (l:Layer {project_id: $pid}) RETURN count(l) AS n",
+            {"pid": project_id},
+        )
+        return {"ok": True, "layers_indexed": rows[0]["n"] if rows else 0}
+    finally:
+        kg.close()
+
+
 @app.post("/api/kg/cleanup")
 async def kg_cleanup(_: str = Depends(require_auth)):
     """Удалить из KG узлы проектов, которых нет на диске.

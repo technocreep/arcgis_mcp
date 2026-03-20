@@ -167,6 +167,11 @@
                             class="text-sm text-emerald-600 hover:text-emerald-800 font-medium flex items-center gap-1.5 transition-colors">
                             <i class="fa-solid fa-cube text-xs"></i> Data Cube
                         </button>
+                        <button @click="buildKg(project)" :disabled="kgIndexing[project.id]"
+                            class="text-sm text-blue-600 hover:text-blue-800 disabled:text-blue-300 font-medium flex items-center gap-1.5 transition-colors">
+                            <i :class="kgIndexing[project.id] ? 'fa-solid fa-circle-notch fa-spin text-xs' : 'fa-solid fa-diagram-project text-xs'"></i>
+                            {{ kgIndexing[project.id] ? 'Indexing...' : 'Index KG' }}
+                        </button>
                     </div>
                 </div>
             </div>

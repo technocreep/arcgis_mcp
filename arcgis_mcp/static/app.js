@@ -624,6 +624,29 @@ createApp({
         const cubeReady = (projectId) =>
             projectsCube.value[projectId] && !isJobRunning(projectId)
 
+        // ── Knowledge Graph indexing ──
+        const kgIndexing = ref({})
+
+        const buildKg = async (project) => {
+            kgIndexing.value = { ...kgIndexing.value, [project.id]: true }
+            try {
+                const r = await fetch(`/api/projects/${project.id}/kg/build`, {
+                    method: 'POST',
+                    headers: { Authorization: authHeader.value },
+                })
+                const data = await r.json()
+                if (r.ok) {
+                    addToast(`KG indexed: ${data.layers_indexed} layers`, 'success')
+                } else {
+                    addToast(`KG build failed: ${data.detail || 'error'}`, 'error')
+                }
+            } catch (e) {
+                addToast(`KG build error: ${e.message}`, 'error')
+            } finally {
+                kgIndexing.value = { ...kgIndexing.value, [project.id]: false }
+            }
+        }
+
         // ── Boot ──
         onMounted(async () => {
             // Escape key — close active modal (never kills DC job)
@@ -685,6 +708,7 @@ createApp({
             openDataCube, closeDataCube, resetDataCube,
             submitDataCube, openDataCubeViewer,
             projectsCube, isJobRunning, cubeReady,
+            kgIndexing, buildKg,
         }
     }
 }).mount('#app')

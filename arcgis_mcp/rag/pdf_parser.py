@@ -2,10 +2,18 @@
 
 Структура карточки соответствует форме УЧЕТНАЯ КАРТОЧКА ИЗУЧЕННОСТИ
 (поля 1-28, Росгеолфонд). Пример: АГ-R42-42.pdf.
+
+Режимы работы:
+  - Vision LLM (по умолчанию, если KG_LLM_MODEL задан):
+      fitz рендерит страницы в PNG → отправляет в vLLM (OpenAI vision API) →
+      LLM возвращает структурированный JSON.
+  - Regex fallback (если KG_LLM_MODEL не задан):
+      fitz извлекает текст → regex-паттерны по полям 1-28.
 """
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import re
@@ -42,10 +50,202 @@ class InvestigationCardData:
     completion_status: str = ""      # поле 27: "завершены" / "в работе"
 
 
+# ---------------------------------------------------------------------------
+# Промпт для vision LLM
+# ---------------------------------------------------------------------------
+
+_EXTRACTION_PROMPT = """\
+Перед тобой страницы PDF «УЧЁТНАЯ КАРТОЧКА ИЗУЧЕННОСТИ» (форма Росгеолфонда, поля 1-28).
+Извлеки данные и верни ТОЛЬКО валидный JSON без markdown-обёртки и пояснений:
+
+{
+  "reg_number": "номер госрегистрации (поле 1), только цифры",
+  "inventory_rosgeolfond": "поле 4.1",
+  "inventory_tgf": "поле 4.2",
+  "sheet_nomenclature": "номенклатура листов (поле 3), формат R-42 или Q-43",
+  "authors": "поле 6, строка с авторами",
+  "title": "название отчёта (поле 7)",
+  "work_type": "индекс вида работ (поле 8), например ГС, ГДП, АМС",
+  "scale": "масштаб (поле 9), формат 1:200000",
+  "year_start": <целое число, поле 10.1, или null>,
+  "year_end": <целое число, поле 10.2, или null>,
+  "region_oblast": "область (поле 11)",
+  "region_okrug": "авт. округ (поле 11.3)",
+  "organization": "поле 12",
+  "purpose": "целевое назначение (поле 13)",
+  "minerals": ["список", "полезных", "ископаемых", "поле 14"],
+  "reserves_calculated": <true или false, поле 15.1>,
+  "resources_calculated": <true или false, поле 15.2>,
+  "abstract_methods": "поле 17.1 — методика и объёмы",
+  "abstract_results": "поле 17.2 — основные результаты",
+  "abstract_conclusions": "поле 17.3 — выводы",
+  "keywords": ["поле 18"],
+  "bbox": {"n": <float>, "s": <float>, "e": <float>, "w": <float>},
+  "area_km2": <float или null, поле 23>,
+  "completion_status": "поле 27, например завершены"
+}
+
+bbox — координаты в десятичных градусах WGS84 (север, юг, восток, запад).
+Если поле отсутствует — null. Не добавляй ничего вне JSON.
+"""
+
+
+# ---------------------------------------------------------------------------
+# Публичный API
+# ---------------------------------------------------------------------------
+
 def parse_investigation_card(pdf_bytes: bytes) -> InvestigationCardData | None:
-    """Извлечь структурированные данные из PDF карточки изученности."""
+    """Извлечь структурированные данные из PDF карточки изученности.
+
+    Использует vision LLM если KG_LLM_MODEL задан, иначе regex-fallback.
+    """
     try:
-        import fitz  # PyMuPDF
+        import config
+        use_vision = bool(config.KG_LLM_MODEL)
+    except Exception:
+        use_vision = False
+
+    if use_vision:
+        try:
+            return _parse_vision(pdf_bytes)
+        except Exception as e:
+            logger.warning("Vision-парсер не справился (%s), fallback на regex", e)
+
+    return _parse_regex(pdf_bytes)
+
+
+# ---------------------------------------------------------------------------
+# Vision LLM парсер
+# ---------------------------------------------------------------------------
+
+def _parse_vision(pdf_bytes: bytes) -> InvestigationCardData | None:
+    """Рендерит страницы PDF в PNG и отправляет в vLLM (OpenAI vision API)."""
+    try:
+        import fitz
+    except ImportError:
+        logger.warning("pymupdf не установлен")
+        return None
+
+    import config
+    from openai import OpenAI
+
+    # --- Рендер страниц в PNG (150 DPI) ---
+    try:
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        images_b64: list[str] = []
+        mat = fitz.Matrix(150 / 72, 150 / 72)
+        for page in doc:
+            pix = page.get_pixmap(matrix=mat)
+            images_b64.append(base64.b64encode(pix.tobytes("png")).decode())
+        doc.close()
+    except Exception as e:
+        logger.warning("Ошибка рендеринга PDF: %s", e)
+        return None
+
+    if not images_b64:
+        return None
+
+    # --- Формируем multimodal сообщение ---
+    content: list[dict] = [{"type": "text", "text": _EXTRACTION_PROMPT}]
+    for img in images_b64:
+        content.append({
+            "type": "image_url",
+            "image_url": {"url": f"data:image/png;base64,{img}"},
+        })
+
+    # --- Вызов LLM ---
+    client = OpenAI(base_url=config.KG_LLM_BASE_URL, api_key=config.KG_LLM_API_KEY)
+    resp = client.chat.completions.create(
+        model=config.KG_LLM_MODEL,
+        messages=[{"role": "user", "content": content}],
+        max_tokens=2000,
+        temperature=0,
+    )
+
+    raw = resp.choices[0].message.content or ""
+    # Убрать markdown code fences если LLM всё-таки добавил
+    raw = re.sub(r"```(?:json)?\s*", "", raw).strip("`").strip()
+
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as e:
+        logger.warning("LLM вернул невалидный JSON: %s\n%s", e, raw[:300])
+        return None
+
+    card = _dict_to_card(data)
+    if not card.reg_number:
+        logger.debug("Vision-парсер: reg_number пустой, карточка не распознана")
+        return None
+    return card
+
+
+def _dict_to_card(data: dict) -> InvestigationCardData:
+    """Конвертировать dict (от LLM) в InvestigationCardData."""
+    def _str(v) -> str:
+        return str(v).strip() if v is not None else ""
+
+    def _int(v) -> int | None:
+        try:
+            return int(v) if v is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    def _float(v) -> float | None:
+        try:
+            return float(v) if v is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    def _strlist(v) -> list[str]:
+        if isinstance(v, list):
+            return [str(x).strip().lower() for x in v if x]
+        if isinstance(v, str) and v:
+            return [s.strip().lower() for s in re.split(r"[,;]+", v) if s.strip()]
+        return []
+
+    card = InvestigationCardData()
+    card.reg_number             = _str(data.get("reg_number"))
+    card.inventory_rosgeolfond  = _str(data.get("inventory_rosgeolfond"))
+    card.inventory_tgf          = _str(data.get("inventory_tgf"))
+    card.sheet_nomenclature     = _str(data.get("sheet_nomenclature"))
+    card.authors                = _str(data.get("authors"))
+    card.title                  = _str(data.get("title"))[:500]
+    card.work_type              = _str(data.get("work_type"))[:100]
+    card.scale                  = _str(data.get("scale"))
+    card.year_start             = _int(data.get("year_start"))
+    card.year_end               = _int(data.get("year_end"))
+    card.region_oblast          = _str(data.get("region_oblast"))[:100]
+    card.region_okrug           = _str(data.get("region_okrug"))
+    card.organization           = _str(data.get("organization"))[:300]
+    card.purpose                = _str(data.get("purpose"))[:500]
+    card.minerals               = _strlist(data.get("minerals"))
+    card.reserves_calculated    = bool(data.get("reserves_calculated"))
+    card.resources_calculated   = bool(data.get("resources_calculated"))
+    card.abstract_methods       = _str(data.get("abstract_methods"))[:2000]
+    card.abstract_results       = _str(data.get("abstract_results"))[:2000]
+    card.abstract_conclusions   = _str(data.get("abstract_conclusions"))[:2000]
+    card.keywords               = [s for s in _strlist(data.get("keywords")) if len(s) > 2][:30]
+    card.area_km2               = _float(data.get("area_km2"))
+    card.completion_status      = _str(data.get("completion_status"))[:50]
+
+    bbox = data.get("bbox")
+    if isinstance(bbox, dict) and all(k in bbox for k in ("n", "s", "e", "w")):
+        try:
+            card.bbox = {k: round(float(bbox[k]), 4) for k in ("n", "s", "e", "w")}
+        except (TypeError, ValueError):
+            card.bbox = None
+
+    return card
+
+
+# ---------------------------------------------------------------------------
+# Regex fallback парсер (оригинальный)
+# ---------------------------------------------------------------------------
+
+def _parse_regex(pdf_bytes: bytes) -> InvestigationCardData | None:
+    """Извлечь данные из PDF через fitz text + regex-паттерны (fallback)."""
+    try:
+        import fitz
     except ImportError:
         logger.warning("pymupdf не установлен, пропуск PDF парсинга")
         return None
@@ -81,7 +281,6 @@ def parse_investigation_card(pdf_bytes: bytes) -> InvestigationCardData | None:
     if m:
         card.sheet_nomenclature = m.group(1).strip()
     else:
-        # Ищем паттерн типа R-42, Q-43 в тексте
         m = re.search(r'\b([A-Z]-\d{2}(?:-\d+)?)\b', text)
         if m:
             card.sheet_nomenclature = m.group(1)
@@ -99,7 +298,7 @@ def parse_investigation_card(pdf_bytes: bytes) -> InvestigationCardData | None:
     )
     if m:
         raw = re.sub(r'\s+', ' ', m.group(1)).strip()
-        card.title = raw[:500]  # ограничиваем длину
+        card.title = raw[:500]
 
     # --- Поле 8: Индекс вида/стадии/метода ---
     m = re.search(r'8\.\s*Индекс.*?метода\s*/\s*\n?\s*([^\n]+)', text, re.IGNORECASE)
@@ -111,7 +310,6 @@ def parse_investigation_card(pdf_bytes: bytes) -> InvestigationCardData | None:
     if m:
         card.scale = re.sub(r'\s', '', m.group(1)).strip()
     else:
-        # Ищем масштаб в тексте заголовка отчёта
         m = re.search(r'(1:\s*\d{2,3}\s*[\d.]*\s*000)', text)
         if m:
             card.scale = re.sub(r'\s', '', m.group(1))
@@ -123,7 +321,6 @@ def parse_investigation_card(pdf_bytes: bytes) -> InvestigationCardData | None:
     m = re.search(r'10\.2\.окончания\s+работ\s*\n\s*(\d{4})', text, re.IGNORECASE)
     if m:
         card.year_end = int(m.group(1))
-    # Fallback: два 4-значных года рядом
     if not card.year_start or not card.year_end:
         years = re.findall(r'\b(19\d{2}|20\d{2})\b', text)
         if len(years) >= 2:
@@ -233,11 +430,9 @@ def parse_investigation_card(pdf_bytes: bytes) -> InvestigationCardData | None:
 
 def _parse_bbox(text: str) -> dict | None:
     """Распарсить таблицу координат → {n, s, e, w} в градусах WGS84."""
-    # Ищем блок таблицы с координатами после "22.Координаты"
     m = re.search(r'22\.\s*Координаты(.*?)(?:23\.|$)', text, re.DOTALL | re.IGNORECASE)
     coord_text = m.group(1) if m else text
 
-    # Ищем строки вида: "68 0 67 0" (градусы минуты для широты и долготы)
     rows = re.findall(r'(\d{1,3})\s+(\d{1,2})\s+(\d{1,3})\s+(\d{1,2})', coord_text)
     if len(rows) < 2:
         return None
