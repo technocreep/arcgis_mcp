@@ -146,12 +146,17 @@ def _parse_vision(pdf_bytes: bytes) -> InvestigationCardData | None:
         return None
 
     # --- Формируем multimodal сообщение ---
-    content: list[dict] = [{"type": "text", "text": _EXTRACTION_PROMPT}]
+    # ВАЖНО: для Pixtral/Mistral изображения должны идти ПЕРЕД текстом.
+    # Mistral-tokenizer внутренне конвертирует image_url в tool-like токены,
+    # и если после них стоит текст в той же роли user — валидатор падает с
+    # "Unexpected role 'user' after role 'tool'".
+    content: list[dict] = []
     for img in images_b64:
         content.append({
             "type": "image_url",
             "image_url": {"url": f"data:image/png;base64,{img}"},
         })
+    content.append({"type": "text", "text": _EXTRACTION_PROMPT})
 
     # --- Вызов LLM ---
     client = OpenAI(base_url=config.KG_LLM_BASE_URL, api_key=config.KG_LLM_API_KEY)
