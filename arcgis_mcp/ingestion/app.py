@@ -196,6 +196,27 @@ async def delete_project(project_id: str, _: str = Depends(require_auth)):
         data["projects"] = [p for p in data.get("projects", []) if p.get("id") != project_id]
         index_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
         
+    # Очистить данные проекта из Knowledge Graph (некритично)
+    try:
+        import config as _cfg
+        if _cfg.NEO4J_URI:
+            from rag.kg_client import Neo4jClient
+            kg = Neo4jClient(_cfg.NEO4J_URI, _cfg.NEO4J_USER, _cfg.NEO4J_PASSWORD)
+            kg.execute("""
+                MATCH (p:Project {id: $pid})
+                OPTIONAL MATCH (p)-[:HAS_GROUP]->(g:Group)
+                OPTIONAL MATCH (p)-[:HAS_LAYER]->(l:Layer)
+                OPTIONAL MATCH (l)-[:HAS_FIELD]->(f:Field)
+                OPTIONAL MATCH (l)-[:HAS_TILE]->(t:SpatialTile)
+                OPTIONAL MATCH (l)-[:HAS_ATTACHMENT]->(a:Attachment)
+                OPTIONAL MATCH (a)-[:IS_CARD]->(c:InvestigationCard)
+                OPTIONAL MATCH (p)-[:HAS_BLOCK]->(b:DatacubeBlock)
+                DETACH DELETE p, g, l, f, t, a, c, b
+            """, {"pid": project_id})
+            kg.close()
+    except Exception as _e:
+        print(f"[delete] WARN: не удалось очистить KG для {project_id}: {_e}")
+
     return {"status": "deleted", "project_id": project_id}
 
 @app.post("/api/upload")
