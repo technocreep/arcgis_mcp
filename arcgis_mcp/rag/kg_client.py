@@ -43,8 +43,8 @@ class Neo4jClient:
     ):
         """MERGE ребра между двумя существующими узлами."""
         cypher = (
-            f"MATCH (a:{from_label} {{{from_key}: $from_val}}), "
-            f"(b:{to_label} {{{to_key}: $to_val}}) "
+            f"MATCH (a:{from_label} {{{from_key}: $from_val}}) "
+            f"MATCH (b:{to_label} {{{to_key}: $to_val}}) "
             f"MERGE (a)-[:{rel_type}]->(b)"
         )
         self.execute(cypher, {"from_val": from_val, "to_val": to_val})
