@@ -39,9 +39,6 @@ def _load_spec() -> tuple[dict[str, str], dict[str, str]]:
     return lookup, not_codes
 
 
-_LOOKUP, _NOT_CODES = _load_spec()
-
-
 def make_tools(state: dict) -> list[Callable]:
 
     def lookup_work_types(codes: list[str]) -> str:
@@ -59,12 +56,13 @@ def make_tools(state: dict) -> list[Callable]:
         Args:
             codes: список аббревиатур для расшифровки.
         """
+        lookup, not_codes = _load_spec()
         results = {}
         for code in codes:
-            if code in _LOOKUP:
-                results[code] = _LOOKUP[code]
-            elif code in _NOT_CODES:
-                results[code] = f"[не является кодом вида работ] {_NOT_CODES[code]}"
+            if code in lookup:
+                results[code] = lookup[code]
+            elif code in not_codes:
+                results[code] = f"[не является кодом вида работ] {not_codes[code]}"
             else:
                 results[code] = "не найден в справочнике"
 

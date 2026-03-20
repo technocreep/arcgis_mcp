@@ -5,6 +5,8 @@
 """
 
 import base64
+import csv
+import io
 import json
 import math
 import shutil
@@ -232,20 +234,67 @@ async def kg_build_project(project_id: str, _: str = Depends(require_auth)):
     gdb_path = str(project_path / "data" / gdb_name) if gdb_name else ""
 
     from rag.kg_client import Neo4jClient
-    from rag.kg_builder import build_from_manifest, index_pdf_attachments
+    from rag.kg_builder import build_from_manifest, index_pdf_attachments, update_datacube_blocks
 
     kg = Neo4jClient(_cfg.NEO4J_URI, _cfg.NEO4J_USER, _cfg.NEO4J_PASSWORD)
     try:
         build_from_manifest(manifest, project_id, kg)
         if gdb_path and Path(gdb_path).exists():
             index_pdf_attachments(project_id, gdb_path, manifest, kg)
+
+        # Индексировать DatacubeBlock узлы если артефакты есть на диске
+        dc_dir = _find_dc_dir(project_path)
+        if dc_dir is not None:
+            artifacts = _load_datacube_artifacts(dc_dir)
+            update_datacube_blocks(project_id, artifacts, kg)
+
         rows = kg.execute(
             "MATCH (l:Layer {project_id: $pid}) RETURN count(l) AS n",
             {"pid": project_id},
         )
-        return {"ok": True, "layers_indexed": rows[0]["n"] if rows else 0}
+        dc_rows = kg.execute(
+            "MATCH (b:DatacubeBlock {project_id: $pid}) RETURN count(b) AS n",
+            {"pid": project_id},
+        )
+        return {
+            "ok": True,
+            "layers_indexed": rows[0]["n"] if rows else 0,
+            "datacube_blocks_indexed": dc_rows[0]["n"] if dc_rows else 0,
+        }
     finally:
         kg.close()
+
+
+def _load_datacube_artifacts(dc_dir: Path) -> dict:
+    """Прочитать CSV-артефакты Data Cube и вернуть dict для update_datacube_blocks."""
+
+    def _read_csv(path: Path) -> list[dict]:
+        if not path.exists():
+            return []
+        text = path.read_text(encoding="utf-8")
+        reader = csv.DictReader(io.StringIO(text))
+        rows = []
+        for row in reader:
+            clean = {}
+            for k, v in row.items():
+                v = v.strip()
+                if v in ("", "nan", "NaN", "None", "null"):
+                    clean[k] = None
+                else:
+                    try:
+                        clean[k] = float(v) if "." in v or "e" in v.lower() else int(v)
+                    except ValueError:
+                        clean[k] = v
+            rows.append(clean)
+        return rows
+
+    blocks = _read_csv(dc_dir / "blocks.csv")
+    scores = _read_csv(dc_dir / "scores.csv")
+    dominant_drivers = _read_csv(dc_dir / "interpretability" / "dominant_driver_group.csv")
+
+    # update_datacube_blocks ожидает: block_id, dominant_driver, dominant_driver_group
+    # dominant_driver_group.csv содержит колонки: block_id, dominant_driver, dominant_driver_group
+    return {"blocks": blocks, "scores": scores, "dominant_drivers": dominant_drivers}
 
 
 @app.post("/api/kg/cleanup")
