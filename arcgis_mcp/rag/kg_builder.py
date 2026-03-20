@@ -47,22 +47,24 @@ def build_from_manifest(manifest: dict, project_id: str, kg: Neo4jClient):
     })
 
     # --- Groups ---
-    groups = manifest.get("groups", [])
-    for grp in groups:
-        group_name = grp.get("name", "")
+    # manifest["groups"] is a dict: {group_name: {"layers": [...]}}
+    groups = manifest.get("groups", {})
+    for group_name, grp_data in groups.items():
         if not group_name:
             continue
         group_id = f"{project_id}::{group_name}"
         kg.merge_node("Group", {"id": group_id}, {
             "name": group_name,
             "project_id": project_id,
-            "feature_dataset": grp.get("feature_dataset") or "",
+            "feature_dataset": "",
         })
         kg.merge_rel("Project", "id", project_id, "HAS_GROUP", "Group", "id", group_id)
 
     # --- Layers + Fields + Attachments ---
     layers = manifest.get("layers", [])
-    layer_mapping = manifest.get("layer_mapping", {})
+    # manifest["layer_mapping"] is a list; build a lookup dict by dataset_name
+    layer_mapping_raw = manifest.get("layer_mapping", [])
+    layer_mapping = {e["dataset_name"]: e for e in layer_mapping_raw if "dataset_name" in e}
     attachments_summary = manifest.get("attachments_summary", {})
     attach_tables = set(attachments_summary.get("tables", []))
 
@@ -290,10 +292,10 @@ def _link_card_to_layers(
 
     for layer in manifest.get("layers", []):
         ext = layer.get("extent_wgs84") or {}
-        ln = ext.get("maxy") or ext.get("n") or ext.get("north")
-        ls = ext.get("miny") or ext.get("s") or ext.get("south")
-        le = ext.get("maxx") or ext.get("e") or ext.get("east")
-        lw = ext.get("minx") or ext.get("w") or ext.get("west")
+        ln = ext.get("max_lat") or ext.get("maxy") or ext.get("n")
+        ls = ext.get("min_lat") or ext.get("miny") or ext.get("s")
+        le = ext.get("max_lon") or ext.get("maxx") or ext.get("e")
+        lw = ext.get("min_lon") or ext.get("minx") or ext.get("w")
         if None in (ln, ls, le, lw):
             continue
         # Bbox пересечение: не (card правее слоя) и не (card левее слоя) и т.д.

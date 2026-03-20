@@ -188,18 +188,37 @@ def run_pipeline(
 
     # --- Шаг 7: Knowledge Graph ---
     if config.NEO4J_URI:
+        import traceback
         log("Шаг 7: Индексирование Knowledge Graph...")
+        log(f"  NEO4J_URI: {config.NEO4J_URI}")
+        kg = None
         try:
             from rag.kg_client import Neo4jClient
             from rag.kg_builder import build_from_manifest, index_pdf_attachments
+
+            log("  Подключение к Neo4j...")
             kg = Neo4jClient(config.NEO4J_URI, config.NEO4J_USER, config.NEO4J_PASSWORD)
+            log("  Подключение успешно")
+
+            log("  build_from_manifest...")
             build_from_manifest(manifest, project_id, kg)
+            log("  build_from_manifest — OK")
+
             gdb_path_str = str(gdb_path)
+            log(f"  index_pdf_attachments (gdb={gdb_path_str})...")
             index_pdf_attachments(project_id, gdb_path_str, manifest, kg)
-            kg.close()
+            log("  index_pdf_attachments — OK")
+
             log("  KG проиндексирован")
         except Exception as e:
             log(f"  WARN: KG индексирование не выполнено: {e}")
+            log(f"  Traceback:\n{''.join('    ' + l for l in traceback.format_exc().splitlines(keepends=True))}")
+        finally:
+            if kg is not None:
+                try:
+                    kg.close()
+                except Exception:
+                    pass
     else:
         log("Шаг 7: NEO4J_URI не задан — KG пропущен")
 
