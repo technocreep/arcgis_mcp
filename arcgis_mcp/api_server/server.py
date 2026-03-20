@@ -30,6 +30,7 @@ from arcgis_mcp.mcp_server.tools.viz_plot_overlay import make_tools as make_plot
 from arcgis_mcp.mcp_server.tools.viz_histogram import make_tools as make_plot_histogram_tools
 from arcgis_mcp.mcp_server.tools.viz_interactive import make_tools as make_plot_interactive_tools
 from arcgis_mcp.mcp_server.tools.datacube import make_tools as make_datacube_tools
+from arcgis_mcp.mcp_server.tools.kg_query import make_tools as make_kg_query_tools
 
 # ---------------------------------------------------------------------------
 # Приложение
@@ -78,6 +79,8 @@ list_attachments_fn, extract_attachment_fn = _att
 (plot_interactive_fn,) = make_plot_interactive_tools(store, _state)
 
 datacube_overview_fn, datacube_block_scores_fn, datacube_block_detail_fn = make_datacube_tools(store, _state)
+
+(geo_context_query_fn,) = make_kg_query_tools(_state)
 
 
 def _parse(result: str) -> Any:
@@ -585,3 +588,43 @@ async def datacube_block_detail(req: DatacubeBlockDetailRequest):
     """Детальная информация по одному блоку: геолокация, score и ранг, значения всех фич,
     SHAP-значения (отсортированы по |значению|), доминирующий драйвер и его группа."""
     return _parse(datacube_block_detail_fn(req.block_id, req.project_id))
+
+
+# ---------------------------------------------------------------------------
+# Knowledge Graph
+# ---------------------------------------------------------------------------
+
+class GeoContextQueryRequest(BaseModel):
+    query: str = Field(
+        ...,
+        description=(
+            "Запрос на естественном языке к семантическому графу геологических данных. "
+            "Примеры: 'карточки изученности по меди в R-42', "
+            "'работы 1960-1980 в Тюменской области', "
+            "'какие слои связаны с аномалией Au'."
+        ),
+    )
+    project_id: Optional[str] = Field(
+        None,
+        description="Фильтр по ID проекта. Если None — поиск по всем проектам.",
+    )
+
+
+@app.post(
+    "/geo_context_query",
+    operation_id="geo_context_query",
+    summary="Семантический запрос к Knowledge Graph геологических данных",
+    tags=["knowledge_graph"],
+)
+async def geo_context_query(req: GeoContextQueryRequest):
+    """Запрос к Knowledge Graph через естественный язык (NL → Cypher → Neo4j).
+
+    Используй для семантических вопросов, которые не решаются manifest/gdb:
+    - история геологических работ по территории или полезному ископаемому
+    - связи между слоями, карточками изученности и организациями
+    - пространственное покрытие: какие карточки охватывают данный слой
+    - поиск по годам, масштабу, виду работ, авторам
+
+    Возвращает: query (исходный), cypher (сгенерированный запрос), count, results.
+    """
+    return _parse(geo_context_query_fn(req.query, req.project_id))

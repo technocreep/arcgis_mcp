@@ -29,6 +29,16 @@ GDB_STATS_TOP_VALUES_LIMIT = 20      # топ-N категориальных з�
 PIPELINE_VERSION = "0.1"
 MANIFEST_VERSION = "1.0"
 
+# Neo4j Knowledge Graph
+NEO4J_URI      = os.getenv("NEO4J_URI",      "bolt://neo4j:7687")
+NEO4J_USER     = os.getenv("NEO4J_USER",     "neo4j")
+NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "gis_password")
+
+# LLM для NL→Cypher (vLLM, OpenAI-совместимый API)
+KG_LLM_BASE_URL = os.getenv("KG_LLM_BASE_URL", "http://host.docker.internal:8000/v1")
+KG_LLM_MODEL    = os.getenv("KG_LLM_MODEL",    "")
+KG_LLM_API_KEY  = os.getenv("KG_LLM_API_KEY",  "none")
+
 # MinIO (объектное хранилище для выходных файлов визуализации)
 # MINIO_ENDPOINT     — адрес S3 API (внутри Docker)
 # MINIO_PUBLIC_HOST  — адрес, доступный снаружи (для URL в ответах инструментов)

@@ -34,6 +34,7 @@ from mcp_server.tools.viz_plot_overlay import make_tools as make_plot_overlay_to
 from mcp_server.tools.viz_histogram import make_tools as make_plot_histogram_tools
 from mcp_server.tools.viz_interactive import make_tools as make_plot_interactive_tools
 from mcp_server.tools.datacube import make_tools as make_datacube_tools
+from mcp_server.tools.kg_query import make_tools as make_kg_query_tools
 
 
 mcp = FastMCP(
@@ -84,6 +85,7 @@ _all_tools = (
     + make_plot_histogram_tools(store, _state)
     + make_plot_interactive_tools(store, _state)
     + make_datacube_tools(store, _state)
+    + make_kg_query_tools(_state)
 )
 
 for _tool_fn in _all_tools:

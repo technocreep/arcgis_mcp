@@ -23,6 +23,8 @@ from ingestion.parser_aprx import parse_aprx
 from ingestion.parser_gdb import parse_gdb
 from ingestion.quality import compute_quality
 
+import config
+
 
 def run_pipeline(
     gdb_path: Path,
@@ -183,6 +185,23 @@ def run_pipeline(
     # _index.json — реестр проектов для MCP server
     _update_index(output_dir, project_id, manifest)
     log(f"  -> {output_dir / '_index.json'}")
+
+    # --- Шаг 7: Knowledge Graph ---
+    if config.NEO4J_URI:
+        log("Шаг 7: Индексирование Knowledge Graph...")
+        try:
+            from rag.kg_client import Neo4jClient
+            from rag.kg_builder import build_from_manifest, index_pdf_attachments
+            kg = Neo4jClient(config.NEO4J_URI, config.NEO4J_USER, config.NEO4J_PASSWORD)
+            build_from_manifest(manifest, project_id, kg)
+            gdb_path_str = str(gdb_path)
+            index_pdf_attachments(project_id, gdb_path_str, manifest, kg)
+            kg.close()
+            log("  KG проиндексирован")
+        except Exception as e:
+            log(f"  WARN: KG индексирование не выполнено: {e}")
+    else:
+        log("Шаг 7: NEO4J_URI не задан — KG пропущен")
 
     log("Готово!")
     return manifest

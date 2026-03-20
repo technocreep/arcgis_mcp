@@ -22,8 +22,11 @@ services:
       - GIS_USERNAME=${GIS_USERNAME:-admin}
       - GIS_PASSWORD=${GIS_PASSWORD:-secret}
       - DATACUBE_URL=http://data-cube-server:8000
+    env_file:
+      - .env
     depends_on:
       - data-cube
+      - neo4j
     restart: unless-stopped
 
   # ---------------------------------------------------------------------------
@@ -67,5 +70,30 @@ services:
       - PROJECTS_DIR=/app/projects
     restart: unless-stopped
 
+  # ---------------------------------------------------------------------------
+  # neo4j — Knowledge Graph (глобальный, все проекты)
+  # Браузер: http://localhost:7474  (neo4j / NEO4J_PASSWORD)
+  # Bolt:    bolt://localhost:7687
+  # ---------------------------------------------------------------------------
+  neo4j:
+    image: neo4j:5-community
+    container_name: gis-neo4j
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    environment:
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:-gis_password}
+      NEO4J_server_memory_heap_initial__size: "512m"
+      NEO4J_server_memory_heap_max__size: "1g"
+    volumes:
+      - neo4j_data:/data
+    healthcheck:
+      test: wget -q --spider http://localhost:7474 || exit 1
+      interval: 15s
+      timeout: 10s
+      retries: 5
+    restart: unless-stopped
+
 volumes:
   projects:
+  neo4j_data:
