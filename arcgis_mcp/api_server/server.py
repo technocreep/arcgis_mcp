@@ -31,6 +31,7 @@ from arcgis_mcp.mcp_server.tools.viz_histogram import make_tools as make_plot_hi
 from arcgis_mcp.mcp_server.tools.viz_interactive import make_tools as make_plot_interactive_tools
 from arcgis_mcp.mcp_server.tools.datacube import make_tools as make_datacube_tools
 from arcgis_mcp.mcp_server.tools.kg_query import make_tools as make_kg_query_tools
+from arcgis_mcp.mcp_server.tools.work_type_lookup import make_tools as make_lookup_tools
 
 # ---------------------------------------------------------------------------
 # Приложение
@@ -81,6 +82,7 @@ list_attachments_fn, extract_attachment_fn = _att
 datacube_overview_fn, datacube_block_scores_fn, datacube_block_detail_fn = make_datacube_tools(store, _state)
 
 (geo_context_query_fn,) = make_kg_query_tools(_state)
+(lookup_work_types_fn,) = make_lookup_tools(_state)
 
 
 def _parse(result: str) -> Any:
@@ -628,3 +630,32 @@ async def geo_context_query(req: GeoContextQueryRequest):
     Возвращает: query (исходный), cypher (сгенерированный запрос), count, results.
     """
     return _parse(geo_context_query_fn(req.query, req.project_id))
+
+
+class LookupWorkTypesRequest(BaseModel):
+    codes: list[str] = Field(
+        ...,
+        description=(
+            "Список аббревиатур кодов видов геологических работ (поле 8 карточки изученности). "
+            "Пример: ['ГС', 'ТЕМ-гф', 'ПР', 'АМС']"
+        ),
+    )
+
+
+@app.post(
+    "/lookup_work_types",
+    operation_id="lookup_work_types",
+    summary="Расшифровка кодов видов геологических работ",
+    tags=["knowledge_graph"],
+)
+async def lookup_work_types(req: LookupWorkTypesRequest):
+    """Расшифровать аббревиатуры кодов видов работ по справочнику Росгеолфонда 1995 г.
+
+    Используй когда нужно расшифровать коды из KG-запросов или карточек изученности:
+    - ГС → Геологическая съёмка, полистная
+    - ТЕМ-гф → Тематические работы, геофизическая специализация
+    - ГДП → Геологическое доизучение ранее заснятых площадей
+    - АМС → Аэромагнитная съёмка
+    Также распознаёт не-коды: ТГФ, НТС, ГКЗ (поясняет, что это не виды работ).
+    """
+    return _parse(lookup_work_types_fn(req.codes))
