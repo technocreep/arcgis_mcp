@@ -201,23 +201,50 @@ async def delete_project(project_id: str, _: str = Depends(require_auth)):
         import config as _cfg
         if _cfg.NEO4J_URI:
             from rag.kg_client import Neo4jClient
+            from rag.kg_builder import delete_project_subgraph
             kg = Neo4jClient(_cfg.NEO4J_URI, _cfg.NEO4J_USER, _cfg.NEO4J_PASSWORD)
-            kg.execute("""
-                MATCH (p:Project {id: $pid})
-                OPTIONAL MATCH (p)-[:HAS_GROUP]->(g:Group)
-                OPTIONAL MATCH (p)-[:HAS_LAYER]->(l:Layer)
-                OPTIONAL MATCH (l)-[:HAS_FIELD]->(f:Field)
-                OPTIONAL MATCH (l)-[:HAS_TILE]->(t:SpatialTile)
-                OPTIONAL MATCH (l)-[:HAS_ATTACHMENT]->(a:Attachment)
-                OPTIONAL MATCH (a)-[:IS_CARD]->(c:InvestigationCard)
-                OPTIONAL MATCH (p)-[:HAS_BLOCK]->(b:DatacubeBlock)
-                DETACH DELETE p, g, l, f, t, a, c, b
-            """, {"pid": project_id})
+            delete_project_subgraph(project_id, kg)
             kg.close()
     except Exception as _e:
         print(f"[delete] WARN: не удалось очистить KG для {project_id}: {_e}")
 
     return {"status": "deleted", "project_id": project_id}
+
+
+@app.post("/api/kg/cleanup")
+async def kg_cleanup(_: str = Depends(require_auth)):
+    """Удалить из KG узлы проектов, которых нет на диске.
+
+    Сравнивает Project-узлы в Neo4j с папками в PROJECTS_DIR.
+    Полезно для очистки «исторических» данных от проектов,
+    удалённых до появления KG-cleanup в delete_project.
+    """
+    import config as _cfg
+    if not _cfg.NEO4J_URI:
+        return {"skipped": True, "reason": "NEO4J_URI not configured"}
+
+    from rag.kg_client import Neo4jClient
+    from rag.kg_builder import delete_project_subgraph
+
+    kg = Neo4jClient(_cfg.NEO4J_URI, _cfg.NEO4J_USER, _cfg.NEO4J_PASSWORD)
+    try:
+        rows = kg.execute("MATCH (p:Project) RETURN p.id AS id")
+        kg_ids = {r["id"] for r in rows if r.get("id")}
+
+        disk_ids = {
+            d.name for d in Path(PROJECTS_DIR).iterdir()
+            if d.is_dir() and not d.name.startswith("_")
+        }
+
+        stale = kg_ids - disk_ids
+        for pid in stale:
+            delete_project_subgraph(pid, kg)
+            print(f"[kg/cleanup] Удалён стale-проект: {pid}")
+
+        return {"cleaned": sorted(stale), "count": len(stale)}
+    finally:
+        kg.close()
+
 
 @app.post("/api/upload")
 async def upload_project(

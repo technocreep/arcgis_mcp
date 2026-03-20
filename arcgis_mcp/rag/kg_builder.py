@@ -1,9 +1,10 @@
 """Построение Knowledge Graph из manifest и PDF-вложений.
 
 Функции:
-    build_from_manifest  — заполнить KG из manifest.json проекта
-    index_pdf_attachments — распарсить PDF карточки изученности из .gdb
-    update_datacube_blocks — добавить DatacubeBlock узлы после Data Cube job
+    build_from_manifest      — заполнить KG из manifest.json проекта
+    index_pdf_attachments    — распарсить PDF карточки изученности из .gdb
+    update_datacube_blocks   — добавить DatacubeBlock узлы после Data Cube job
+    delete_project_subgraph  — удалить все узлы проекта из KG
 """
 
 from __future__ import annotations
@@ -347,6 +348,33 @@ def update_datacube_blocks(project_id: str, artifacts: dict, kg: Neo4jClient):
         count += 1
 
     logger.info("[KG] Проект %s: %d DatacubeBlock узлов обновлено", project_id, count)
+
+
+# ---------------------------------------------------------------------------
+# Удаление проекта
+# ---------------------------------------------------------------------------
+
+_DELETE_PROJECT_CYPHER = """
+    MATCH (p:Project {id: $pid})
+    OPTIONAL MATCH (p)-[:HAS_GROUP]->(g:Group)
+    OPTIONAL MATCH (p)-[:HAS_LAYER]->(l:Layer)
+    OPTIONAL MATCH (l)-[:HAS_FIELD]->(f:Field)
+    OPTIONAL MATCH (l)-[:HAS_TILE]->(t:SpatialTile)
+    OPTIONAL MATCH (l)-[:HAS_ATTACHMENT]->(a:Attachment)
+    OPTIONAL MATCH (a)-[:IS_CARD]->(c:InvestigationCard)
+    OPTIONAL MATCH (p)-[:HAS_BLOCK]->(b:DatacubeBlock)
+    DETACH DELETE p, g, l, f, t, a, c, b
+"""
+
+
+def delete_project_subgraph(project_id: str, kg: Neo4jClient):
+    """Удалить все узлы проекта из KG.
+
+    Mineral, Organization, WorkMethod — общие сущности, сохраняются.
+    DETACH DELETE автоматически убирает все рёбра удалённых узлов.
+    """
+    kg.execute(_DELETE_PROJECT_CYPHER, {"pid": project_id})
+    logger.info("[KG] Удалён проект %s из графа", project_id)
 
 
 # ---------------------------------------------------------------------------
