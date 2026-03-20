@@ -330,6 +330,17 @@ def update_datacube_blocks(project_id: str, artifacts: dict, kg: Neo4jClient):
         for b in artifacts.get("dominant_drivers", [])
     }
 
+    logger.info(
+        "[KG] Индексирование DatacubeBlock: проект=%s blocks=%d scores=%d drivers=%d",
+        project_id, len(blocks), len(scores), len(drivers),
+    )
+    blocks_without_score = [b.get("block_id") for b in blocks if b.get("block_id") not in scores]
+    if blocks_without_score:
+        logger.warning(
+            "[KG] %d блоков без скора (первые 5: %s)",
+            len(blocks_without_score), blocks_without_score[:5],
+        )
+
     count = 0
     for block in blocks:
         block_id = block.get("block_id")

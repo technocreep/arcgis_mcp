@@ -182,6 +182,8 @@ def _parse_vision(pdf_bytes: bytes) -> InvestigationCardData | None:
     if not images_b64:
         return None
 
+    logger.info("Vision-парсер: %d стр. → %s (%s)", len(images_b64), config.KG_LLM_MODEL, config.KG_LLM_BASE_URL)
+
     # --- Формируем multimodal сообщение ---
     # ВАЖНО: для Pixtral/Mistral изображения должны идти ПЕРЕД текстом.
     # Mistral-tokenizer внутренне конвертирует image_url в tool-like токены,
@@ -204,7 +206,15 @@ def _parse_vision(pdf_bytes: bytes) -> InvestigationCardData | None:
         temperature=0,
     )
 
+    usage = resp.usage
+    if usage:
+        logger.info(
+            "Vision-парсер: LLM ответил — prompt_tokens=%d, completion_tokens=%d",
+            usage.prompt_tokens, usage.completion_tokens,
+        )
+
     raw = resp.choices[0].message.content or ""
+    logger.debug("Vision-парсер raw ответ: %s", raw[:500])
     # Убрать markdown code fences если LLM всё-таки добавил
     raw = re.sub(r"```(?:json)?\s*", "", raw).strip("`").strip()
 
@@ -216,8 +226,9 @@ def _parse_vision(pdf_bytes: bytes) -> InvestigationCardData | None:
 
     card = _dict_to_card(data)
     if not card.reg_number:
-        logger.debug("Vision-парсер: reg_number пустой, карточка не распознана")
+        logger.warning("Vision-парсер: reg_number пустой, карточка не распознана. Ответ: %s", raw[:200])
         return None
+    logger.info("Vision-парсер: карточка распознана reg_number=%s title=%.60s", card.reg_number, card.title)
     return card
 
 

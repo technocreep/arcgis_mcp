@@ -20,6 +20,9 @@ logging.basicConfig(
     datefmt="%Y-%m-%dT%H:%M:%S",
     stream=__import__("sys").stdout,
 )
+
+logger = logging.getLogger(__name__)
+
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List, Optional
@@ -253,8 +256,11 @@ async def kg_build_project(project_id: str, _: str = Depends(require_auth)):
         # Индексировать DatacubeBlock узлы если артефакты есть на диске
         dc_dir = _find_dc_dir(project_path)
         if dc_dir is not None:
+            logger.info("[KG] Datacube артефакты найдены: %s", dc_dir)
             artifacts = _load_datacube_artifacts(dc_dir)
             update_datacube_blocks(project_id, artifacts, kg)
+        else:
+            logger.info("[KG] Datacube артефакты не найдены для проекта %s, пропуск", project_id)
 
         rows = kg.execute(
             "MATCH (l:Layer {project_id: $pid}) RETURN count(l) AS n",
@@ -299,6 +305,15 @@ def _load_datacube_artifacts(dc_dir: Path) -> dict:
     blocks = _read_csv(dc_dir / "blocks.csv")
     scores = _read_csv(dc_dir / "scores.csv")
     dominant_drivers = _read_csv(dc_dir / "interpretability" / "dominant_driver_group.csv")
+
+    logger.info(
+        "[KG] Datacube CSV: blocks=%d scores=%d dominant_drivers=%d",
+        len(blocks), len(scores), len(dominant_drivers),
+    )
+    if not blocks:
+        logger.warning("[KG] blocks.csv пуст или не найден в %s", dc_dir)
+    if not scores:
+        logger.warning("[KG] scores.csv пуст или не найден в %s", dc_dir)
 
     # update_datacube_blocks ожидает: block_id, dominant_driver, dominant_driver_group
     # dominant_driver_group.csv содержит колонки: block_id, dominant_driver, dominant_driver_group
