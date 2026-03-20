@@ -8,10 +8,18 @@ import base64
 import csv
 import io
 import json
+import logging
 import math
 import shutil
 import zipfile
 import os
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    datefmt="%Y-%m-%dT%H:%M:%S",
+    stream=__import__("sys").stdout,
+)
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List, Optional

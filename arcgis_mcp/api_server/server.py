@@ -13,7 +13,16 @@ Swagger UI: http://localhost:10002/docs
 from __future__ import annotations
 
 import json
+import logging
+import sys
 from typing import Any, Optional
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    datefmt="%Y-%m-%dT%H:%M:%S",
+    stream=sys.stdout,
+)
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
