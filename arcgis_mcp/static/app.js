@@ -636,7 +636,7 @@ createApp({
                 })
                 const data = await r.json()
                 if (r.ok) {
-                    addToast(`KG indexed: ${data.layers_indexed} layers`, 'success')
+                    addToast(`KG indexed: ${data.layers_indexed} layers, ${data.datacube_blocks_indexed ?? 0} datacube blocks`, 'success')
                 } else {
                     addToast(`KG build failed: ${data.detail || 'error'}`, 'error')
                 }

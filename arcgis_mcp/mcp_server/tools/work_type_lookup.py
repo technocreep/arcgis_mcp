@@ -25,7 +25,9 @@ def _load_spec() -> tuple[dict[str, str], dict[str, str]]:
     for key, section in spec.items():
         if key in skip:
             continue
-        if isinstance(section, dict):
+        if isinstance(section, str):
+            lookup[key] = section
+        elif isinstance(section, dict):
             for sub in section.values():
                 if isinstance(sub, dict):
                     for code, desc in sub.items():

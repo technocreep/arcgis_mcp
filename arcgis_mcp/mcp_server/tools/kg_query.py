@@ -69,11 +69,15 @@ def make_tools(state: dict) -> list[Callable]:
         pid = project_id or state.get("current_project_id")
         if pid:
             effective_query = f"{query} [project_id filter: {pid}]"
+            logger.info("geo_context_query | project_id=%s | effective_query: %s", pid, effective_query)
+        else:
+            logger.info("geo_context_query | query: %s", query)
 
         # NL → Cypher
         from rag.nl_to_cypher import nl_query_to_cypher
         cypher, nl_err = nl_query_to_cypher(effective_query)
         if nl_err:
+            logger.error("NL→Cypher failed: %s", nl_err)
             return json.dumps({
                 "error": nl_err,
                 "query": query,
@@ -83,7 +87,9 @@ def make_tools(state: dict) -> list[Callable]:
         # Выполнить Cypher
         try:
             results = kg.execute(cypher)
+            logger.info("Neo4j result count: %d", len(results))
         except Exception as e:
+            logger.error("Neo4j execution error: %s | cypher: %s", e, cypher)
             return json.dumps({
                 "error": f"Ошибка выполнения Cypher: {e}",
                 "cypher": cypher,

@@ -39,7 +39,8 @@ Nodes:
 - Organization    {name}
 - WorkMethod      {name, work_type, scale}
 - DatacubeBlock   {block_id, project_id, score, lon, lat,
-                   dominant_driver, dominant_driver_group}
+                   dominant_driver,        <- raw ML feature name, NOT for semantic search
+                   dominant_driver_group}  <- human-readable group (other/hydrothermal/structural/…)
 - SpatialTile     {id, layer_id, project_id, bbox_json, feature_count, dominant_values_json}
 
 Relationships (direction is FIXED — never reverse):
@@ -74,6 +75,17 @@ MATCH (c)-[:USES_METHOD]->(wm:WorkMethod)
 MATCH (c:InvestigationCard)-[:TARGETS]->(m:Mineral)
 WHERE toLower(m.name) CONTAINS 'золото'
 
+# Top prospective blocks for a project:
+MATCH (p:Project {id: 'X'})-[:HAS_BLOCK]->(b:DatacubeBlock)
+RETURN b.block_id, b.score, b.lon, b.lat, b.dominant_driver_group
+ORDER BY b.score DESC LIMIT 50
+
+# Blocks filtered by driver group:
+MATCH (p:Project {id: 'X'})-[:HAS_BLOCK]->(b:DatacubeBlock)
+WHERE toLower(b.dominant_driver_group) CONTAINS 'hydrothermal'
+RETURN b.block_id, b.score, b.lon, b.lat
+ORDER BY b.score DESC
+
 === RULES ===
 
 1. Return ONLY the Cypher query — no markdown fences, no explanation, no comments.
@@ -92,6 +104,10 @@ WHERE toLower(m.name) CONTAINS 'золото'
 10. Use meaningful aliases in RETURN (e.g. year_start, not c.year_start).
 11. For work type / scale queries always JOIN WorkMethod via USES_METHOD.
 12. Do NOT invent properties or relationships not listed in SCHEMA.
+13. DatacubeBlock driver filtering: ALWAYS use dominant_driver_group (human-readable group).
+    NEVER filter on dominant_driver — it is a raw ML feature name, not semantic.
+14. DatacubeBlock score: float 0..1, higher = more prospective.
+    High-confidence filter: WHERE b.score >= 0.5
 """
 
 
@@ -101,7 +117,8 @@ def nl_query_to_cypher(query: str) -> tuple[str, str | None]:
     Returns:
         (cypher, error) — error=None если успешно.
     """
-    logger.info(f"Connection try to: {config.KG_LLM_BASE_URL} >>> {config.KG_LLM_MODEL}")
+    logger.info("NL→Cypher | query: %s", query)
+    logger.info("Connection try to: %s >>> %s", config.KG_LLM_BASE_URL, config.KG_LLM_MODEL)
 
     if not config.KG_LLM_BASE_URL or not config.KG_LLM_MODEL:
         return "", "KG_LLM_BASE_URL или KG_LLM_MODEL не настроены"
@@ -127,9 +144,23 @@ def nl_query_to_cypher(query: str) -> tuple[str, str | None]:
                 max_tokens=512,
                 temperature=0,
             )
-            cypher = response.choices[0].message.content.strip()
+            msg = response.choices[0].message
+            content = msg.content
+            logger.debug(
+                "LLM raw | content=%r | reasoning_content=%r",
+                content,
+                getattr(msg, "reasoning_content", "-"),
+            )
+            if not content:
+                raise ValueError(f"LLM returned None/empty content. message={msg}")
+            # Некоторые серверы вставляют <think>...</think> внутрь content
+            content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
+            if not content:
+                raise ValueError("LLM ответил только thinking-блоком без Cypher")
+            cypher = content
             # Убрать markdown-блоки если модель добавила
             cypher = re.sub(r"```(?:cypher)?\n?", "", cypher).strip("`").strip()
+            logger.info("Generated Cypher:\n%s", cypher)
             return cypher, None
         except Exception as e:
             logger.warning("LLM attempt %d failed: %s", attempt + 1, e)
