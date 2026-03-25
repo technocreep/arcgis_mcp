@@ -1,0 +1,10 @@
+/* Common layout and shared components moved from App.css
+   Converted to plain CSS (no nesting)
+*/
+
+
+.main_container {
+  background-color: aliceblue;
+  width: 100vw;
+  height: 100vw;
+}

@@ -1,0 +1,8 @@
+passlib
+fastapi
+uvicorn
+pandas
+cryptography
+python-jose
+python-multipart
+shapely

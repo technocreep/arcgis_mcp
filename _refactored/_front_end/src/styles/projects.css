@@ -1,0 +1,101 @@
+/* Page-specific styles for Projects page */
+.projects-container {
+  background: transparent;
+  padding: 28px;
+  max-width: 1200px;
+  margin: 0 auto;
+  box-sizing: border-box;
+}
+
+.projects-container h1 {
+  color: var(--text-h);
+  margin: 0 0 12px;
+}
+
+.projects-list {
+  background: transparent;
+  list-style: none;
+  padding: 0;
+  margin: 16px 0 0;
+  display: grid;
+  gap: 18px;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+}
+
+.project-item {
+  border: 1px solid var(--border);
+  border-left: 4px solid rgba(16,185,129,0.06); /* subtle left accent */
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 6px 18px rgba(2,6,23,0.04);
+  overflow: hidden;
+}
+
+.card-body { padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+.card-header { display: flex; justify-content: space-between; align-items: start; }
+.project-title { font-weight: 700; color: black; font-size: 16px; margin-bottom: 6px; }
+.project-meta { color: black; font-size: 13px; }
+.project-meta.small { color: black; opacity: 0.8; font-size: 12px; }
+
+.card-metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.metric { background: var(--code-bg); padding: 12px; border-radius: 8px; }
+.metric-label { font-size: 11px; color: var(--text); text-transform: uppercase; letter-spacing: 0.6px; }
+.metric-value { font-weight: 700; font-size: 20px; color: var(--text-h); margin-top: 6px; }
+
+.card-footer { display: flex; gap: 12px; padding-top: 4px; }
+.link-btn { 
+  background: transparent; 
+  border: 0; 
+  color: var(--accent); 
+  font-weight: 600; 
+  cursor: pointer; 
+  padding: 6px 8px; 
+  border-radius: 8px; 
+}
+.link-btn:hover { background: rgba(37,99,235,0.06); }
+.trash-btn { background: transparent; border: 0; cursor: pointer; color: #999; font-size: 16px; }
+
+/* Manifest viewer */
+.manifest-viewer {
+  white-space: pre-wrap;
+  background: #f6f8fa;
+  color: black;
+  padding: 12px;
+  border-radius: 6px;
+  overflow: auto;
+  max-height: 420px;
+  border: 1px solid rgba(0,0,0,0.06);
+}
+
+/* JSON syntax highlighting */
+.manifest-viewer .json-key { color: #7c3aed; font-weight: 600; }
+.manifest-viewer .json-string { color: #059669; }
+.manifest-viewer .json-number { color: #1e40af; }
+.manifest-viewer .json-boolean { color: #b45309; font-weight: 600; }
+.manifest-viewer .json-null { color: #6b7280; font-style: italic; }
+
+/* Collapsible JSON details styling */
+.manifest-viewer details.json-details { margin: 6px 0; padding-left: 12px; }
+.manifest-viewer summary { cursor: pointer; list-style: none; color: #111827; font-weight: 600; }
+.manifest-viewer .json-child { margin-left: 14px; padding: 2px 0; }
+.manifest-viewer .json-key { color: #7c3aed; }
+.manifest-viewer .json-string { color: #059669; }
+.manifest-viewer .json-number { color: #1e40af; }
+.manifest-viewer .json-boolean { color: #b45309; }
+.manifest-viewer .json-null { color: #6b7280; }
+
+/* Code view with gutter and fold groups */
+.manifest-viewer .code-view { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, 'Roboto Mono', 'Courier New', monospace; font-size: 13px; }
+.manifest-viewer .code-block { display: block; border-radius: 6px; background: #fff; padding: 8px; border: 1px solid rgba(0,0,0,0.04); }
+.manifest-viewer .code-line { display: flex; gap: 8px; align-items: flex-start; white-space: pre; }
+.manifest-viewer .gutter { width: 48px; color: #9ca3af; text-align: right; padding-right: 8px; user-select: none; }
+.manifest-viewer .code-content { flex: 1; }
+.manifest-viewer .fold-toggle { width: 18px; color: #6b7280; background: transparent; border: 0; cursor: pointer; padding: 0 4px; }
+.manifest-viewer .fold-group.collapsed { display: none; }
+
+/* When a code-line is collapsed, hide the original content and show a '>' placeholder */
+.manifest-viewer .code-line .collapsed-placeholder { display: none; color: #6b7280; padding-right: 6px; }
+.manifest-viewer .code-line.collapsed .collapsed-placeholder { display: inline; }
+.manifest-viewer .code-line.collapsed .code-content { display: none; }
+
+

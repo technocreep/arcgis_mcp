@@ -1,0 +1,78 @@
+.header_body {
+    display: flex;
+    flex-direction: row; 
+    height: 50px;
+}
+
+.brand-icon {
+    width: 40px;
+    height: 50px;
+    margin-right: 12px;
+}
+
+.brand-icon img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    display: block;
+}
+
+.label-group {
+    flex: 8;
+    display: flex;
+    flex-direction: row;
+    justify-content: left;
+    color: black;
+    height: 50px;
+    align-items: center;
+}
+
+.brand-title {
+    font-size: 24px;
+    font-weight: 500;
+    color: black;
+}
+
+.brand-accent {
+    color: blue;
+}
+
+
+.button-group {
+    flex: 1;
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    
+}
+
+.spacer {
+    flex: 3;
+}
+
+.status-group {
+    flex: 1;
+    display: flex;
+}
+
+.upload_btn {
+    background: #1D4ED8;
+    color: white;
+    border: none;
+    margin: 4px;
+    height: 45px;
+    width: 140px;
+    border-radius: 10px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.upload_btn:hover {
+    background: #2563EB;
+}
+
+.upload_btn.disabled {
+    background: #9CA3AF;
+    cursor: not-allowed;
+}

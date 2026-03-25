@@ -35,7 +35,17 @@ class ProjectStore:
             return []
         data = self._read_json(self._index_path)
         result = []
-        for p in data.get("projects", []):
+        # Support two possible shapes for _index.json:
+        # - { "projects": [ ... ] }
+        # - [ { ... }, { ... } ]
+        if isinstance(data, dict):
+            items = data.get("projects", [])
+        elif isinstance(data, list):
+            items = data
+        else:
+            items = []
+
+        for p in items:
             result.append(ProjectSummary(
                 id=p.get("id", ""),
                 name=p.get("name", ""),
