@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import Header from '../components/Header'
+import Header_simple from '../components/Header_simple'
 import MapView from '../components/Map/MapView'
 import PointItem from '../models/PointItem'
+import DashboardReports from '../components/DashboardReports'
+import DataCubeViewer from '../components/DataCubeViewer'
 
 export default function ProjectDetail() {
   const { id } = useParams()
@@ -315,8 +317,8 @@ export default function ProjectDetail() {
   }, [manifest, showManifest])
 
   return (
-    <div>
-      <Header user={user} onChangeCredentials={() => navigate('/login')} onUpload={() => alert('Upload not implemented')} />
+    <div className='project_details'>
+      <Header_simple user={user} onChangeCredentials={() => navigate('/login')} onUpload={() => alert('Upload not implemented')} />
       <div className="projects-container" style={{ minHeight: '90vh' }}>
         <button onClick={() => navigate(-1)} style={{ marginBottom: 12 }}>← Back</button>
       {error && <div className="auth-error">{error}</div>}
@@ -390,6 +392,14 @@ export default function ProjectDetail() {
                 </div>
               </div>
             </div>
+          )}
+
+          {project && (
+            <DashboardReports projectId={project.id} manifest={manifest} />
+          )}
+
+          {project && (
+            <DataCubeViewer projectId={project.id} />
           )}
         </div>
       ) : (

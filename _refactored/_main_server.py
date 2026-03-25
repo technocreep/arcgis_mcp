@@ -14,6 +14,7 @@ from _backend.auth_utils.auth_utils import create_access_token, \
 from _backend.auth_utils.auth_utils import verify_user
 from _projects_API import router as projects_router
 from _upload_API import router as upload_router
+from _datacube_API import router as datacube_router
 
 
 
@@ -29,6 +30,7 @@ app = FastAPI(debug=True)
 app.include_router(_data_read_API.router)
 app.include_router(projects_router)
 app.include_router(upload_router)
+app.include_router(datacube_router)
 #app.include_router(_data_read_API.public_router)
 
 @app.middleware("http")

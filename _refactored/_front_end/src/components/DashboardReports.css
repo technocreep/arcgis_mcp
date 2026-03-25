@@ -1,0 +1,142 @@
+.dashboard-reports {
+  margin-top: 24px;
+}
+
+.dashboard-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.dashboard-header-row h2 {
+  margin: 0;
+  color: #0f172a;
+}
+
+.dashboard-subtitle {
+  margin: 6px 0 0;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.dashboard-open-link {
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  color: #0f172a;
+  text-decoration: none;
+}
+
+.dashboard-open-link:hover {
+  border-color: #94a3b8;
+  background: #f8fafc;
+}
+
+.dashboard-config-strip {
+  margin-bottom: 16px;
+}
+
+.dash-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(175px, 1fr));
+  gap: 10px;
+}
+
+.dash-card {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 14px 16px;
+  color: inherit;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
+}
+
+.dash-card-button {
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+
+.dash-card-button:hover,
+.dash-card-button.active {
+  border-color: #94a3b8;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+}
+
+.dash-card-button.active {
+  background: #eff6ff;
+  transform: translateY(-1px);
+}
+
+.dash-card-icon {
+  font-size: 18px;
+  margin-bottom: 4px;
+}
+
+.dash-card-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #334155;
+}
+
+.dash-card-desc {
+  font-size: 11px;
+  color: #94a3b8;
+  line-height: 1.4;
+}
+
+.dashboard-frame-wrap {
+  margin-top: 18px;
+}
+
+.dashboard-frame {
+  width: 100%;
+  height: 78vh;
+  min-height: 720px;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.dashboard-empty,
+.dashboard-error {
+  margin-top: 12px;
+  padding: 16px;
+  border-radius: 10px;
+  font-size: 14px;
+}
+
+.dashboard-empty {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  color: #475569;
+}
+
+.dashboard-error {
+  background: #fff1f2;
+  border: 1px solid #fecdd3;
+  color: #be123c;
+}
+
+@media (max-width: 900px) {
+  .dashboard-header-row {
+    flex-direction: column;
+  }
+
+  .dashboard-frame {
+    height: 65vh;
+    min-height: 560px;
+  }
+}
