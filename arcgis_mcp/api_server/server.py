@@ -81,7 +81,7 @@ _att = make_attachment_tools(store, _state)
 list_projects_fn, get_project_summary_fn, list_layers_fn, describe_layer_fn = _inv
 query_features_fn, summarize_layer_fn = _qry
 (search_izuchennost_fn,) = _izuch
-list_attachments_fn, extract_attachment_fn = _att
+(list_attachments_fn,) = _att
 
 (plot_layer_fn,) = make_plot_layer_tools(store, _state)
 (plot_overlay_fn,) = make_plot_overlay_tools(store, _state)
@@ -328,34 +328,6 @@ async def list_attachments(req: ListAttachmentsRequest):
     return _parse(list_attachments_fn(req.layer, req.project_id))
 
 
-class ExtractAttachmentRequest(BaseModel):
-    table: str = Field(
-        ...,
-        description='Имя таблицы вложений, например "Izuch_A_sel__ATTACH"',
-    )
-    index: int = Field(..., ge=0, description="Индекс записи (0-based, из list_attachments)")
-    output_dir: str = Field(
-        "./attachments_output", description="Директория для сохранения файла"
-    )
-    project_id: Optional[str] = Field(
-        None, description="ID проекта (необязательно, если уже выбран)"
-    )
-
-
-@app.post(
-    "/extract_attachment",
-    operation_id="extract_attachment",
-    summary="Извлечь файл-вложение из геобазы на диск",
-    tags=["attachments"],
-)
-async def extract_attachment(req: ExtractAttachmentRequest):
-    """Извлечь файл-вложение (PDF, изображение) из таблицы *__ATTACH на диск.
-
-    Используй list_attachments() чтобы узнать доступные индексы.
-    """
-    return _parse(
-        extract_attachment_fn(req.table, req.index, req.output_dir, req.project_id)
-    )
 
 
 # ---------------------------------------------------------------------------
