@@ -7,7 +7,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from typing import Callable
 
 import fiona
@@ -75,7 +74,6 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
         # Читаем из manifest (если уже есть кэш в layer_profiles)
         all_attachments = []
         for table_name in target_tables:
-            safe = table_name.replace("/", "_")
             profile = store.get_layer_profile(pid, table_name)
 
             # Читаем из .gdb если профиля нет
@@ -98,104 +96,12 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
             "tables": target_tables,
             "attachments": all_attachments,
             "hint": (
-                "Для извлечения файла: "
-                "extract_attachment(table='Имя__ATTACH', index=0, output_dir='./output')"
+                "Для поиска по содержимому карточек изученности используйте geo_context_query — "
+                "данные из PDF-вложений индексированы в граф знаний."
             ),
         }, ensure_ascii=False, indent=2)
 
-    def extract_attachment(
-        table: str,
-        index: int,
-        output_dir: str = "./attachments_output",
-        project_id: str | None = None,
-    ) -> str:
-        """Извлечь файл-вложение из геобазы на диск.
-
-        Читает бинарные данные из таблицы *__ATTACH и сохраняет файл.
-        Используй list_attachments() чтобы узнать доступные индексы.
-
-        Args:
-            table: Имя таблицы вложений (например "Izuch_A_sel__ATTACH").
-            index: Индекс записи в таблице (0-based, из list_attachments).
-            output_dir: Директория для сохранения файла.
-                        По умолчанию: './attachments_output'
-            project_id: ID проекта (необязательно, если уже выбран).
-        """
-        try:
-            pid = _resolve_project(project_id)
-            gdb_path = store.get_gdb_path(pid)
-        except (ValueError, FileNotFoundError) as e:
-            return json.dumps({"error": str(e)}, ensure_ascii=False)
-
-        output_path = Path(output_dir)
-        output_path.mkdir(parents=True, exist_ok=True)
-
-        try:
-            with fiona.open(gdb_path, layer=table) as src:
-                features = list(src)
-
-            if index < 0 or index >= len(features):
-                return json.dumps({
-                    "error": f"Индекс {index} вне диапазона. В таблице {len(features)} записей (0..{len(features)-1})."
-                }, ensure_ascii=False)
-
-            feat = features[index]
-            props = dict(feat.get("properties") or {})
-
-            # Имя файла
-            att_name = (
-                props.get("ATT_NAME") or props.get("att_name") or f"attachment_{index}"
-            )
-            content_type = props.get("CONTENT_TYPE") or props.get("content_type") or ""
-            data_size = props.get("DATA_SIZE") or props.get("data_size") or 0
-            rel_globalid = props.get("REL_GLOBALID") or props.get("rel_globalid")
-
-            # Бинарные данные
-            raw_data = props.get("DATA") or props.get("data")
-
-            if raw_data is None:
-                return json.dumps({
-                    "warning": (
-                        "Бинарные данные недоступны напрямую через fiona/GDAL для этой версии .gdb. "
-                        "Файл метаданных сохранён."
-                    ),
-                    "att_name": att_name,
-                    "content_type": content_type,
-                    "data_size": data_size,
-                    "rel_globalid": rel_globalid,
-                    "hint": (
-                        "Для извлечения бинарных данных из FGDB используйте arcpy или "
-                        "экспортируйте через ArcGIS Pro."
-                    ),
-                }, ensure_ascii=False)
-
-            # Сохраняем файл
-            safe_name = att_name.replace("/", "_").replace("\\", "_")
-            file_path = output_path / safe_name
-
-            if isinstance(raw_data, (bytes, bytearray)):
-                file_path.write_bytes(raw_data)
-            elif isinstance(raw_data, str):
-                # base64-encoded или hex
-                import base64
-                try:
-                    file_path.write_bytes(base64.b64decode(raw_data))
-                except Exception:
-                    file_path.write_text(raw_data, encoding="utf-8")
-
-            return json.dumps({
-                "success": True,
-                "file": str(file_path.resolve()),
-                "att_name": att_name,
-                "content_type": content_type,
-                "size_bytes": file_path.stat().st_size if file_path.exists() else data_size,
-                "rel_globalid": rel_globalid,
-            }, ensure_ascii=False, indent=2)
-
-        except Exception as e:
-            return json.dumps({"error": f"Ошибка извлечения: {e}"}, ensure_ascii=False)
-
-    return [list_attachments, extract_attachment]
+    return [list_attachments]
 
 
 # ---------------------------------------------------------------------------
