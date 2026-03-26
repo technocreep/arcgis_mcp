@@ -141,16 +141,42 @@ def nl_query_to_cypher(query: str) -> tuple[str, str | None]:
                     {"role": "system", "content": SCHEMA_CONTEXT},
                     {"role": "user", "content": f"Convert to Cypher: {user_msg}"},
                 ],
-                max_tokens=512,
+                max_tokens=4096,
                 temperature=0,
             )
             msg = response.choices[0].message
             content = msg.content
+            reasoning = getattr(msg, "reasoning_content", None) or getattr(msg, "reasoning", None)
             logger.debug(
-                "LLM raw | content=%r | reasoning_content=%r",
+                "LLM raw | content=%r | reasoning=%r",
                 content,
-                getattr(msg, "reasoning_content", "-"),
+                (reasoning or "")[:200],
             )
+            # Reasoning-модели (DeepSeek-R1, QwQ и др.) кладут ответ в reasoning,
+            # а content остаётся None. Извлекаем Cypher из reasoning-текста.
+            if not content and reasoning:
+                logger.info("content=None, extracting Cypher from reasoning field")
+                # Ищем последний Cypher-блок в тексте reasoning
+                cypher_blocks = re.findall(
+                    r"```(?:cypher)?\n?([\s\S]*?)```", reasoning
+                )
+                if cypher_blocks:
+                    content = cypher_blocks[-1].strip()
+                    logger.info("Extracted Cypher from reasoning block: %s", content[:200])
+                else:
+                    # Ищем строки MATCH/RETURN/WITH как признак Cypher
+                    lines = reasoning.splitlines()
+                    cypher_lines: list[str] = []
+                    in_cypher = False
+                    for line in lines:
+                        stripped = line.strip()
+                        if re.match(r"^(MATCH|WITH|WHERE|RETURN|OPTIONAL|CALL|UNWIND|CREATE|MERGE)", stripped, re.I):
+                            in_cypher = True
+                        if in_cypher:
+                            cypher_lines.append(line)
+                    if cypher_lines:
+                        content = "\n".join(cypher_lines).strip()
+                        logger.info("Extracted Cypher from reasoning lines: %s", content[:200])
             if not content:
                 raise ValueError(f"LLM returned None/empty content. message={msg}")
             # Некоторые серверы вставляют <think>...</think> внутрь content
