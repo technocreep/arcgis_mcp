@@ -71,9 +71,16 @@ MATCH (p:Project {id: 'X'})-[:HAS_LAYER]->(l:Layer)
 MATCH (c:InvestigationCard)-[:SPATIALLY_COVERS]->(l:Layer {project_id: 'X'})
 MATCH (c)-[:USES_METHOD]->(wm:WorkMethod)
 
-# Cards by mineral:
+# Cards by mineral (use for ANY question about mineral content, assays, deposits):
 MATCH (c:InvestigationCard)-[:TARGETS]->(m:Mineral)
 WHERE toLower(m.name) CONTAINS 'золото'
+
+# Cards by mineral filtered by project:
+MATCH (p:Project {id: 'X'})-[:HAS_LAYER]->(l:Layer)
+      -[:HAS_ATTACHMENT]->(a:Attachment)-[:IS_CARD]->(c:InvestigationCard)
+      -[:TARGETS]->(m:Mineral)
+WHERE toLower(m.name) CONTAINS 'мед'
+RETURN c.title, c.year_start, c.year_end, c.abstract_results, m.name
 
 # Top prospective blocks for a project:
 MATCH (p:Project {id: 'X'})-[:HAS_BLOCK]->(b:DatacubeBlock)
@@ -95,7 +102,11 @@ ORDER BY b.score DESC
    WHERE l.project_id = 'X'  OR  MATCH (p:Project {id: 'X'})-[...]
 5. Use DISTINCT when traversing multiple paths to the same node.
 6. Mineral and text search: use toLower(...) CONTAINS 'term' (lowercase term).
+   Mineral name variants: медь/мед/copper → 'мед'; золото/gold → 'золот'; свинец → 'свинец'; цинк → 'цинк'.
 7. minerals_json, keywords_json are JSON strings — use CONTAINS for substring search.
+6a. IMPORTANT: "содержание <минерала>" / "<минерал> в скважинах/пробах/породах" —
+    this is NOT about Field nodes. Always query InvestigationCard → Mineral for mineral content questions.
+    Field nodes only store GDB column names and statistics (min/max/mean), not mineral assay data.
 8. Year filter: WHERE c.year_start >= 1960 AND c.year_end <= 1980
 9. LIMIT rules:
    - General/exploratory queries (no specific filter): LIMIT 50.
