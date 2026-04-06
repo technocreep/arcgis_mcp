@@ -192,11 +192,31 @@ def nl_query_to_cypher(query: str) -> tuple[str, str | None]:
                 raise ValueError(f"LLM returned None/empty content. message={msg}")
             # Некоторые серверы вставляют <think>...</think> внутрь content
             content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
+            # Модели-reasoning иногда закрывают блок </think> без открывающего тега
+            if "</think>" in content:
+                content = content.split("</think>")[-1].strip()
             if not content:
                 raise ValueError("LLM ответил только thinking-блоком без Cypher")
             cypher = content
             # Убрать markdown-блоки если модель добавила
             cypher = re.sub(r"```(?:cypher)?\n?", "", cypher).strip("`").strip()
+            # Финальный fallback: если результат не начинается с Cypher-ключевого слова,
+            # извлечь первый непрерывный блок Cypher-строк
+            _cypher_kw = re.compile(
+                r"^(MATCH|WITH|WHERE|RETURN|OPTIONAL|CALL|UNWIND|CREATE|MERGE)", re.I
+            )
+            if cypher and not _cypher_kw.match(cypher.lstrip()):
+                _lines = cypher.splitlines()
+                _cypher_lines: list[str] = []
+                _in_cypher = False
+                for _line in _lines:
+                    if _cypher_kw.match(_line.strip()):
+                        _in_cypher = True
+                    if _in_cypher:
+                        _cypher_lines.append(_line)
+                if _cypher_lines:
+                    cypher = "\n".join(_cypher_lines).strip()
+                    logger.info("Fallback: extracted Cypher block from mixed content")
             logger.info("Generated Cypher:\n%s", cypher)
             return cypher, None
         except Exception as e:
