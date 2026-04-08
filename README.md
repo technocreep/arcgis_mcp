@@ -2,7 +2,128 @@
 
 Сервер реализует протокол [Model Context Protocol (MCP)](https://modelcontextprotocol.io) поверх геопространственных данных из ArcGIS File Geodatabase (`.gdb`) с опциональными метаданными из ArcGIS Pro проекта (`.aprx`). LLM-агент подключается к серверу и получает набор инструментов для поиска, анализа и визуализации геологических, геофизических и картографических данных.
 
-**Технологический стек:** Python 3.12, FastMCP, GeoPandas, Fiona, Matplotlib, Folium, MinIO (S3), FastAPI.
+**Технологический стек:** Python 3.12, FastAPI, GeoPandas, Fiona, Matplotlib, Folium, Neo4j, MinIO (S3).
+
+---
+
+## Общая схема системы
+
+```
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                          Open WebUI (браузер)                                │
+│                                                                              │
+│  Пользователь: "Покажи карту гравиметрии для проекта Лекын"                 │
+│       │                                                          ▲           │
+│       │  LLM решает вызвать инструмент                          │           │
+│       ▼                                                          │           │
+│  [ LLM-агент ] ──── читает /openapi.json ───────────────────────┘           │
+└────────────────────────────┬─────────────────────────────────────────────────┘
+                             │  POST /plot_layer
+                             │  {"layer": "гравиметрия"}
+                             ▼
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                    gis-mcp  :10002  (api_server/server.py)                   │
+│                                                                              │
+│  Инструменты (mcp_server/tools/):                                            │
+│  ┌─────────────┐  ┌────────────┐  ┌───────────┐  ┌──────────┐  ┌────────┐  │
+│  │  inventory  │  │   query    │  │    viz    │  │datacube  │  │  KG   │  │
+│  │  (P0)       │  │  (P1)      │  │(plot_*)   │  │          │  │ query │  │
+│  └──────┬──────┘  └─────┬──────┘  └─────┬─────┘  └────┬─────┘  └───┬───┘  │
+└─────────┼───────────────┼───────────────┼──────────────┼────────────┼───────┘
+          │               │               │              │            │
+          ▼               ▼               ▼              ▼            ▼
+    manifest.json     .gdb (via      .gdb + MinIO    data-cube    Neo4j KG
+    (быстро, <100мс)  GeoPandas)     (PNG/HTML)      :внутр.сеть  :7687
+                      (1–30 с)       (2–60 с)
+                                          │
+                                          ▼
+                                   MinIO / S3 (gis-viz)
+                                   PNG → публичный URL
+                                          │
+                             возвращает markdown-ссылку
+                                   на изображение
+
+
+─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─  Поток инжеста (отдельный путь)  ─ ─ ─ ─ ─ ─ ─ ─ ─ ─
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                   gis-loader  :10003  (ingestion/app.py)                     │
+│                                                                              │
+│  POST /api/projects/upload  ◄── ZIP (.gdb + .aprx)  ◄── пользователь/UI    │
+│                │                                                             │
+│                ▼  pipeline.py (7 шагов)                                     │
+│  1. Распаковка ZIP                                                           │
+│  2. Поиск .aprx / .gdb                                                      │
+│  3. Парсинг .aprx  ──► display_name, группы, CRS                           │
+│  4. Парсинг .gdb   ──► поля, статистика, экстент, вложения                 │
+│  5. Сборка manifest.json                                                     │
+│  6. Quality checks                                                           │
+│  7. KG-индексация ─────────────────────────────────────────► Neo4j KG      │
+│                           (pdf_parser → InvestigationCard узлы)              │
+│                           (non-blocking: ошибка не ломает pipeline)          │
+│                │                                                             │
+│                ▼                                                             │
+│  PROJECTS_DIR/{project_id}/manifest.json  ◄── shared Docker volume         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+              ▲ shared volume "projects" ▼
+   gis-mcp читает те же файлы, что записал gis-loader
+
+
+─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─  KG-запрос (geo_context_query)  ─ ─ ─ ─ ─ ─ ─ ─ ─ ─
+
+  Пользователь: "Какие организации вели съёмку на золото в Лекыне?"
+       │
+       ▼
+  gis-mcp: geo_context_query(query)
+       │
+       ▼
+  nl_to_cypher.py ──► vLLM (KG_LLM_MODEL) ──► Cypher-запрос
+       │
+       ▼
+  Neo4j  MATCH (ic:InvestigationCard)-[:TARGETS]->(m:Mineral {name:"золото"})
+         MATCH (ic)-[:CONDUCTED_BY]->(o:Organization)
+         RETURN o.name, ic.year_start, ic.title  LIMIT 50
+       │
+       ▼
+  JSON-результат ──► агент формирует ответ пользователю
+```
+
+---
+
+## Быстрый старт
+
+```bash
+# 1. Скопировать шаблон и заполнить переменные
+cp .env.template .env
+
+# 2. Поднять стек
+docker compose up -d
+
+# 3. Открыть
+# Ingestion UI: http://localhost:10003/ui/
+# MCP Swagger:  http://localhost:10002/docs
+# Neo4j:        http://localhost:7474
+```
+
+**Docker-сервисы:**
+
+| Сервис | Порт | Назначение |
+|--------|------|-----------|
+| `gis-loader` | 10003 | Ingestion API — загрузка `.aprx`/`.gdb` ZIP, запуск pipeline, KG-индексация |
+| `gis-mcp` | 10002 | OpenAPI Tool Server — инструменты для Open WebUI агента |
+| `neo4j` | 7474 / 7687 | Knowledge Graph (Community Edition) |
+| `data-cube` | — | ML-пайплайн проспективности (`Dockerfile.datacube`) |
+
+**Make-команды:**
+
+```bash
+make rebuild       # Полная пересборка всего стека
+make rebuild-app   # Пересобрать только gis-loader + gis-mcp
+make reload-app    # Перезапустить app-контейнеры без пересборки (правки кода)
+make rebuild-cube  # Пересобрать data-cube с нуля
+make update-cube   # git pull + pip install в контейнере data-cube
+```
 
 ---
 
@@ -24,15 +145,25 @@ arcgis_mcp/
 │       ├── viz_plot_overlay.py   # Статичная карта нескольких слоёв
 │       ├── viz_histogram.py      # Гистограммы и распределения
 │       ├── viz_interactive.py    # Интерактивная HTML-карта (Folium)
-│       └── datacube.py           # Data Cube: ML-артефакты из MinIO
+│       ├── datacube.py           # Data Cube: ML-артефакты из MinIO
+│       ├── kg_query.py           # KG: NL-запросы к Neo4j
+│       └── work_type_lookup.py   # KG: справочник видов геологических работ
 ├── api_server/
-│   └── server.py                 # REST-обёртка (FastAPI) для Open WebUI
+│   └── server.py                 # OpenAPI Tool Server (FastAPI) для Open WebUI
+├── rag/
+│   ├── kg_client.py              # Neo4j клиент (merge_node, merge_rel, execute)
+│   ├── kg_builder.py             # Построение KG из manifest + PDF-карточек
+│   ├── kg_schema.py              # Схема узлов и рёбер
+│   ├── nl_to_cypher.py           # NL → Cypher через LLM
+│   ├── pdf_parser.py             # Парсинг PDF карточек изученности (Vision LLM / regex)
+│   ├── tile_builder.py           # SpatialTile узлы для больших слоёв
+│   └── pdf_spec.json             # Справочник кодов видов работ (Росгеолфонд 1995)
 ├── static/datacube/
 │   ├── index.html                # Viewer Data Cube
 │   ├── viewer.js                 # Логика всех V-блоков
 │   └── description.md            # Описание V-блоков и источников данных
 └── ingestion/
-    ├── pipeline.py               # Оркестрация загрузки проекта
+    ├── pipeline.py               # Оркестрация загрузки проекта (7 шагов + KG-индексация)
     ├── parser_aprx.py            # Парсинг .aprx
     ├── parser_gdb.py             # Парсинг .gdb
     ├── manifest_builder.py       # Сборка manifest.json
@@ -52,28 +183,9 @@ arcgis_mcp/
 
 ## Транспорт и конфигурация сервера
 
-`mcp_server/server.py` создаёт экземпляр `FastMCP` и регистрирует все инструменты фабрик:
+**Основной режим (production):** `api_server/server.py` — FastAPI OpenAPI-сервер. Open WebUI читает `/openapi.json` и превращает каждый эндпоинт в LLM-инструмент. Подключение: `http://localhost:10002/openapi.json`.
 
-```python
-mcp = FastMCP(name="GIS Agent Service", instructions="...")
-
-for fn in (
-    make_inventory_tools(store, _state)
-    + make_query_tools(store, _state)
-    + make_izuch_tools(store, _state)
-    + make_attachment_tools(store, _state)
-    + make_plot_layer_tools(store, _state)
-    + make_plot_overlay_tools(store, _state)
-    + make_plot_histogram_tools(store, _state)
-    + make_plot_interactive_tools(store, _state)
-    + make_datacube_tools(store, _state)
-):
-    mcp.add_tool(fn)
-```
-
-**Режимы запуска:**
-- `stdio` — для `run_agent.py` / pydantic-ai (локальный агент)
-- `http` — HTTP + SSE для подключения через Open WebUI
+**Альтернативный режим (local/stdio):** `mcp_server/server.py` — FastMCP экземпляр для прямого запуска через `run_agent.py` / pydantic-ai.
 
 **Разделяемое состояние** хранится в `_state = {"current_project_id": None}`. При вызове `get_project_summary(project_id=X)` поле `current_project_id` устанавливается на `X`, и все последующие инструменты не требуют повторного указания проекта.
 
@@ -667,6 +779,51 @@ make reload-cube
 
 ---
 
+## Knowledge Graph (Neo4j)
+
+При инжесте проекта `pipeline.py` автоматически строит граф знаний в Neo4j (шаг 6/7). KG является неблокирующим: если Neo4j недоступен, pipeline завершается успешно, KG-инструменты деградируют до пустых ответов.
+
+### Схема графа
+
+**Узлы:** `Project`, `Group`, `Layer`, `Field`, `Attachment`, `InvestigationCard`, `Mineral`, `Organization`, `WorkMethod`, `SpatialTile`, `DatacubeBlock`
+
+**Рёбра:**
+```
+(Project)-[:HAS_LAYER]          ->(Layer)
+(Project)-[:HAS_GROUP]          ->(Group)
+(Project)-[:HAS_BLOCK]          ->(DatacubeBlock)
+(Layer)-[:HAS_FIELD]            ->(Field)
+(Layer)-[:HAS_ATTACHMENT]       ->(Attachment)
+(Attachment)-[:IS_CARD]         ->(InvestigationCard)
+(InvestigationCard)-[:TARGETS]          ->(Mineral)
+(InvestigationCard)-[:CONDUCTED_BY]     ->(Organization)
+(InvestigationCard)-[:USES_METHOD]      ->(WorkMethod)
+(InvestigationCard)-[:SPATIALLY_COVERS]->(Layer)
+```
+
+### PDF-парсер карточек изученности
+
+`rag/pdf_parser.py` извлекает структурированные данные из PDF-вложений (карточки Росгеолфонд, поля 1–28). Два режима:
+
+- **Vision LLM** (если `KG_LLM_MODEL` задан): fitz рендерит страницы в PNG → base64 → vLLM (Pixtral/Mistral).
+- **Regex fallback** (`KG_LLM_MODEL` пуст): fitz извлекает текст → regex по полям карточки.
+
+### NL → Cypher
+
+`rag/nl_to_cypher.py` конвертирует вопросы на естественном языке в Cypher-запросы через LLM. Системный промпт содержит полную схему, канонические паттерны и 12 правил генерации (включая автоматическое `LIMIT 50` без фильтра).
+
+### KG-инструменты
+
+#### `geo_context_query(query, project_id?)`
+Выполняет NL-запрос к Knowledge Graph. Конвертирует вопрос → Cypher → выполняет в Neo4j → возвращает результаты. Полезен для поиска связей между объектами (минералы, организации, методы работ, карточки изученности), которые недоступны через manifest или .gdb напрямую.
+
+---
+
+#### `lookup_work_types(codes)`
+Справочник кодов видов геологических работ (поле 8 карточки изученности, классификатор Росгеолфонд 1995). Принимает список строковых кодов, возвращает расшифровку.
+
+---
+
 ## Сводная таблица инструментов
 
 | Инструмент | Уровень | Источник | Назначение |
@@ -687,3 +844,5 @@ make reload-cube
 | `datacube_overview` | DataCube | MinIO (MINIO_CUBE_BUCKET) | Метрики модели, топ-фичи, распределение скоров |
 | `datacube_block_scores` | DataCube | MinIO | Ранжированный список блоков по score |
 | `datacube_block_detail` | DataCube | MinIO | Полный профиль блока: фичи, SHAP, драйвер |
+| `geo_context_query` | KG | Neo4j | NL-запрос к Knowledge Graph (минералы, орг., методы) |
+| `lookup_work_types` | KG | Neo4j | Расшифровка кодов видов геологических работ |
