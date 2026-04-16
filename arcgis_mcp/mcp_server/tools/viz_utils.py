@@ -27,7 +27,7 @@ def load_and_reproject(gdb_path: str, layer_id: str, target_epsg: int = 4326) ->
     return gdf
 
 
-def prepare_for_plot(gdf: gpd.GeoDataFrame, max_features: int = 50_000) -> tuple[gpd.GeoDataFrame, bool]:
+def prepare_for_plot(gdf: gpd.GeoDataFrame, max_features: int = 200000) -> tuple[gpd.GeoDataFrame, bool]:
     """Downsample (точки) или simplify (линии/полигоны) при превышении лимита.
 
     Returns:
