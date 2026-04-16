@@ -78,7 +78,11 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
             project_id: ID проекта (необязательно, если уже выбран через get_project_summary).
             color_field: Поле для раскраски. Числовое → colorbar, категориальное → легенда.
                          Если None — единый цвет (steelblue/lightblue/black).
-            style: "auto" | "points" | "lines" | "polygons". Auto определяет по geometry_type.
+            style: Стиль рендеринга. "auto" — определяется автоматически по geometry_type и размеру слоя:
+                   точки ≤500 → "markers" (крупные маркеры), 501–10 000 → "scatter", >10 000 → "density"
+                   (hexbin-градиент плотности, эффективен для больших облаков точек).
+                   Явные значения: "scatter" | "markers" | "density" | "lines" | "polygons".
+                   Используй "density" для визуализации пространственной концентрации точечных объектов.
             colormap: "auto" (мГал→RdYlBu_r, нТл→RdBu_r, высоты→terrain...) или имя matplotlib colormap.
             show_license: Рисовать контур лицензионного участка (по умолчанию True).
             bbox_wgs84: Обрезать по bbox: "minx,miny,maxx,maxy" в WGS84. Если None — авто-extent.
