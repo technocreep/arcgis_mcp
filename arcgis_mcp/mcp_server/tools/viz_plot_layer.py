@@ -33,11 +33,14 @@ from .viz_utils import (
 )
 
 _SKIP_FIELDS = {"objectid", "fid", "shape_length", "shape_area", "globalid", "shape"}
+_DENSITY_THRESHOLD = 10_000
 
 
 def _auto_style(geometry_type: str, feature_count: int) -> str:
     gt = (geometry_type or "").lower()
     if "point" in gt:
+        if feature_count > _DENSITY_THRESHOLD:
+            return "density"
         return "scatter" if feature_count > 500 else "markers"
     if "line" in gt or "string" in gt:
         return "lines"
@@ -166,7 +169,7 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
         # Рендеринг
         # ----------------------------------------------------------------
         stats_dict = {}
-        is_point = "point" in gt_lower or resolved_style in ("scatter", "markers", "points")
+        is_point = "point" in gt_lower or resolved_style in ("scatter", "markers", "points", "density")
         is_line = "line" in gt_lower or "string" in gt_lower or resolved_style == "lines"
 
         if resolved_color_field and resolved_color_field in gdf.columns:
@@ -178,14 +181,25 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
                 vmin, vmax = clip_quantiles(col_series)
 
                 if is_point:
-                    sc = ax.scatter(
-                        gdf.geometry.x, gdf.geometry.y,
-                        c=col_series.values, cmap=resolved_cmap,
-                        vmin=vmin, vmax=vmax,
-                        s=4 if len(gdf) > 10_000 else (12 if len(gdf) > 2_000 else 25),
-                        alpha=0.9, linewidths=0,
-                    )
-                    plt.colorbar(sc, ax=ax, label=make_colorbar_label(resolved_color_field, units), shrink=0.8)
+                    if resolved_style == "density":
+                        hb = ax.hexbin(
+                            gdf.geometry.x, gdf.geometry.y,
+                            C=col_series.values,
+                            reduce_C_function=np.mean,
+                            gridsize=80,
+                            cmap=resolved_cmap,
+                            mincnt=1,
+                        )
+                        plt.colorbar(hb, ax=ax, label=make_colorbar_label(resolved_color_field, units), shrink=0.8)
+                    else:
+                        sc = ax.scatter(
+                            gdf.geometry.x, gdf.geometry.y,
+                            c=col_series.values, cmap=resolved_cmap,
+                            vmin=vmin, vmax=vmax,
+                            s=4 if len(gdf) > 10_000 else (12 if len(gdf) > 2_000 else 25),
+                            alpha=0.9, linewidths=0,
+                        )
+                        plt.colorbar(sc, ax=ax, label=make_colorbar_label(resolved_color_field, units), shrink=0.8)
 
                 elif is_line:
                     norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
@@ -224,12 +238,21 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
                 gdf["_color"] = col_series.astype(str).map(color_map)
 
                 if is_point:
-                    ax.scatter(
-                        gdf.geometry.x, gdf.geometry.y,
-                        c=list(gdf["_color"].fillna("gray")),
-                        s=4 if len(gdf) > 10_000 else 20,
-                        alpha=0.9, linewidths=0,
-                    )
+                    if resolved_style == "density":
+                        hb = ax.hexbin(
+                            gdf.geometry.x, gdf.geometry.y,
+                            gridsize=80,
+                            cmap="YlOrRd",
+                            mincnt=1,
+                        )
+                        plt.colorbar(hb, ax=ax, label="Количество объектов", shrink=0.8)
+                    else:
+                        ax.scatter(
+                            gdf.geometry.x, gdf.geometry.y,
+                            c=list(gdf["_color"].fillna("gray")),
+                            s=4 if len(gdf) > 10_000 else 20,
+                            alpha=0.9, linewidths=0,
+                        )
                 elif is_line:
                     gdf.plot(ax=ax, color=gdf["_color"].fillna("gray"), linewidth=0.8, alpha=0.85)
                 else:
@@ -253,13 +276,22 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
                 "steelblue" if is_line else ("steelblue" if is_point else "lightblue"),
             )
             if is_point:
-                ax.scatter(
-                    gdf.geometry.x, gdf.geometry.y,
-                    c=fallback_color,
-                    marker=(sem or {}).get("marker", "o"),
-                    s=(sem or {}).get("markersize", 4 if len(gdf) > 10_000 else 20),
-                    alpha=0.85, linewidths=0,
-                )
+                if resolved_style == "density":
+                    hb = ax.hexbin(
+                        gdf.geometry.x, gdf.geometry.y,
+                        gridsize=80,
+                        cmap="YlOrRd",
+                        mincnt=1,
+                    )
+                    plt.colorbar(hb, ax=ax, label="Количество объектов", shrink=0.8)
+                else:
+                    ax.scatter(
+                        gdf.geometry.x, gdf.geometry.y,
+                        c=fallback_color,
+                        marker=(sem or {}).get("marker", "o"),
+                        s=(sem or {}).get("markersize", 4 if len(gdf) > 10_000 else 20),
+                        alpha=0.85, linewidths=0,
+                    )
             elif is_line:
                 gdf.plot(
                     ax=ax, color=fallback_color,
