@@ -172,6 +172,10 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
         # ----------------------------------------------------------------
         # Рендеринг
         # ----------------------------------------------------------------
+        # Адаптивный gridsize для hexbin: целевой диапазон 10–50 гексагонов по ширине.
+        # Используем sqrt(n) как меру «желаемой» детализации, но зажимаем в [10, 50].
+        _hex_gridsize = int(np.clip(np.sqrt(len(gdf) / 4), 10, 50))
+
         stats_dict = {}
         is_point = "point" in gt_lower or resolved_style in ("scatter", "markers", "points", "density")
         is_line = "line" in gt_lower or "string" in gt_lower or resolved_style == "lines"
@@ -190,7 +194,7 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
                             gdf.geometry.x, gdf.geometry.y,
                             C=col_series.values,
                             reduce_C_function=np.mean,
-                            gridsize=80,
+                            gridsize=_hex_gridsize,
                             cmap=resolved_cmap,
                             mincnt=1,
                         )
@@ -245,7 +249,7 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
                     if resolved_style == "density":
                         hb = ax.hexbin(
                             gdf.geometry.x, gdf.geometry.y,
-                            gridsize=80,
+                            gridsize=_hex_gridsize,
                             cmap="YlOrRd",
                             mincnt=1,
                         )
