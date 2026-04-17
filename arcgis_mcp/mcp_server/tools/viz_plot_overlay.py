@@ -24,9 +24,6 @@ from .viz_utils import (
     draw_license_boundary,
     get_license_view_bounds,
     clip_to_view,
-    clip_quantiles,
-    make_colorbar_label,
-    auto_colormap,
     get_semantic_style,
     save_figure,
     upload_to_minio,
@@ -51,6 +48,7 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
         show_legend: bool = True,
         title: str | None = None,
         output_format: str = "png",
+        license_margin: float = 0.20,
     ) -> str:
         """Наложить несколько слоёв на одну карту и сохранить PNG.
 
@@ -79,6 +77,8 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
             show_legend: Показывать легенду со списком слоёв (по умолчанию True).
             title: Заголовок карты. None → автогенерация.
             output_format: "png" или "svg".
+            license_margin: Отступ вокруг контура лицензии — доля от max(ширина, высота).
+                            0.20 по умолчанию. Увеличь до 0.4–0.5 для обзора соседних территорий.
         """
         try:
             pid = _resolve_project(project_id)
@@ -103,7 +103,7 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
 
         # Загружаем контур лицензии заранее — он определяет extent карты
         lic_gdf = get_license_boundary(pid, store) if show_license else None
-        view_bounds = get_license_view_bounds(lic_gdf)
+        view_bounds = get_license_view_bounds(lic_gdf, margin=license_margin)
 
         for spec in layer_specs:
             if not isinstance(spec, dict) or "layer_id" not in spec:
@@ -255,8 +255,8 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
         url = upload_to_minio(out_path, pid)
 
         return json.dumps({
-            "file": out_path,
-            "url": url,
+            # "file": out_path,
+            # "url": url,
             "markdown": f"![Карта]({url})" if url else None,
             "layers_rendered": loaded_layers,
             "layers_requested": len(layer_specs),

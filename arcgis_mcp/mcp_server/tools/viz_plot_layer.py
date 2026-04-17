@@ -68,6 +68,7 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
         bbox_wgs84: str | None = None,
         title: str | None = None,
         output_format: str = "png",
+        license_margin: float = 0.20,
     ) -> str:
         """Визуализировать один слой на статичной карте и сохранить PNG/SVG.
 
@@ -93,6 +94,8 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
             bbox_wgs84: Обрезать по bbox: "minx,miny,maxx,maxy" в WGS84. Если None — авто-extent.
             title: Заголовок карты. None → автогенерация из display_name + units + field + n=count.
             output_format: "png" (по умолчанию) или "svg".
+            license_margin: Отступ вокруг контура лицензии — доля от max(ширина, высота).
+                            0.20 по умолчанию. Увеличь до 0.4–0.5 для обзора соседних территорий.
         """
         try:
             pid = _resolve_project(project_id)
@@ -179,7 +182,7 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
         # ----------------------------------------------------------------
         # Контур лицензии — задаёт видимую область, нужен для расчёта сетки интерполяции.
         lic_gdf = get_license_boundary(pid, store) if show_license else None
-        view_bounds = get_license_view_bounds(lic_gdf)
+        view_bounds = get_license_view_bounds(lic_gdf, margin=license_margin)
 
         # Разрешение сетки интерполяции: ~300 точек в ширину области лицензии, cap 500.
         if view_bounds:
@@ -338,8 +341,8 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
         url = upload_to_minio(out_path, pid)
 
         result: dict = {
-            "file": out_path,
-            "url": url,
+            # "file": out_path,
+            # "url": url,
             "markdown": f"![{display_name}]({url})" if url else None,
             "layer": resolved_id,
             "display_name": display_name,

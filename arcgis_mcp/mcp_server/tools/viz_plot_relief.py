@@ -38,6 +38,7 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
         show_license: bool = True,
         title: str | None = None,
         output_format: str = "png",
+        license_margin: float = 0.20,
     ) -> str:
         """Построить карту изолиний рельефа с подписями высот, реками и контуром лицензии.
 
@@ -53,6 +54,8 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
             show_license: Рисовать контур лицензионного участка (по умолчанию True).
             title: Заголовок карты. None → автогенерация.
             output_format: "png" (по умолчанию) или "svg".
+            license_margin: Отступ вокруг контура лицензии — доля от max(ширина, высота).
+                            0.20 по умолчанию. Увеличь до 0.4–0.5 для обзора соседних территорий.
         """
         try:
             pid = _resolve_project(project_id)
@@ -74,7 +77,7 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
 
         # Контур лицензии — определяет видимую область
         lic_gdf = get_license_boundary(pid, store) if show_license else None
-        view_bounds = get_license_view_bounds(lic_gdf)
+        view_bounds = get_license_view_bounds(lic_gdf, margin=license_margin)
 
         if view_bounds:
             view = view_bounds

@@ -365,6 +365,11 @@ class PlotLayerRequest(BaseModel):
     )
     title: Optional[str] = Field(None, description="Заголовок карты (авто, если None)")
     output_format: str = Field("png", description='"png" или "svg"')
+    license_margin: float = Field(
+        0.20,
+        description="Отступ вокруг контура лицензии — доля от max(ширина, высота). "
+                    "0.20 по умолчанию. Увеличь до 0.4–0.5 для обзора соседних территорий.",
+    )
 
 
 @app.post(
@@ -384,7 +389,8 @@ async def plot_layer(req: PlotLayerRequest):
     return _parse(
         plot_layer_fn(
             req.layer_id, req.project_id, req.color_field, req.style,
-            req.colormap, req.show_license, req.bbox_wgs84, req.title, req.output_format,
+            req.colormap, req.show_license, req.bbox_wgs84, req.title,
+            req.output_format, req.license_margin,
         )
     )
 
@@ -408,6 +414,11 @@ class PlotOverlayRequest(BaseModel):
     show_legend: bool = Field(True, description="Показывать легенду со списком слоёв")
     title: Optional[str] = Field(None, description="Заголовок карты (авто, если None)")
     output_format: str = Field("png", description='"png" или "svg"')
+    license_margin: float = Field(
+        0.20,
+        description="Отступ вокруг контура лицензии — доля от max(ширина, высота). "
+                    "0.20 по умолчанию. Увеличь до 0.4–0.5 для обзора соседних территорий.",
+    )
 
 
 class PlotReliefRequest(BaseModel):
@@ -417,6 +428,11 @@ class PlotReliefRequest(BaseModel):
     show_license: bool = Field(True, description="Рисовать контур лицензии")
     title: Optional[str] = Field(None, description="Заголовок карты (авто, если None)")
     output_format: str = Field("png", description='"png" или "svg"')
+    license_margin: float = Field(
+        0.20,
+        description="Отступ вокруг контура лицензии — доля от max(ширина, высота). "
+                    "0.20 по умолчанию. Увеличь до 0.4–0.5 для обзора соседних территорий.",
+    )
 
 
 @app.post(
@@ -434,7 +450,7 @@ async def plot_relief(req: PlotReliefRequest):
     return _parse(
         plot_relief_fn(
             req.layer_id, req.project_id, req.show_rivers,
-            req.show_license, req.title, req.output_format,
+            req.show_license, req.title, req.output_format, req.license_margin,
         )
     )
 
@@ -455,7 +471,7 @@ async def plot_overlay(req: PlotOverlayRequest):
     return _parse(
         plot_overlay_fn(
             req.layers, req.project_id, req.show_license, req.show_legend,
-            req.title, req.output_format,
+            req.title, req.output_format, req.license_margin,
         )
     )
 
