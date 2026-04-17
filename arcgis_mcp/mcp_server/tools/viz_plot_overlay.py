@@ -1,7 +1,7 @@
 """Tool: plot_overlay — наложение нескольких слоёв на одной карте (matplotlib).
 
-Для сводных карт: порядок слоёв в массиве = порядок рендеринга
-(первый = подложка, последний = поверх).
+Порядок рендеринга определяется автоматически по типу геометрии:
+крупные полигоны → мелкие полигоны → density → линии → рельеф → точки → контур лицензии.
 """
 
 from __future__ import annotations
@@ -32,6 +32,23 @@ from .viz_utils import (
     label_isolines,
 )
 
+_RELIEF_KEYWORDS = ("relief", "рельеф", "изолин", "горизон", "contour")
+
+
+def _sort_key(rec: dict):
+    """Приоритет рендеринга: 0=крупные полигоны … 5=рельеф. Меньше = рисуется первым (снизу)."""
+    gt_lower = rec["gt_lower"]
+    if "polygon" in gt_lower:
+        median_area = float(rec["gdf"].geometry.area.median())
+        return (0, -median_area)       # крупные полигоны ниже мелких
+    if rec["style_spec"] == "density":
+        return (2, 0)
+    if "line" in gt_lower or "string" in gt_lower:
+        if rec["is_relief"]:
+            return (4, 0)              # рельеф выше обычных линий
+        return (3, 0)
+    return (5, 0)                      # точки поверх всего
+
 
 def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
 
@@ -53,8 +70,9 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
         """Наложить несколько слоёв на одну карту и сохранить PNG.
 
         Для сводных карт — геология + тектоника + скважины + геофизика и т.д.
-        Первый слой в массиве = подложка, последний = поверх. Контур лицензии
-        рисуется последним (zorder=10).
+        Порядок рендеринга определяется автоматически по типу геометрии:
+        крупные полигоны → мелкие полигоны → density → линии → рельеф → точки → контур лицензии.
+        Порядок слоёв в массиве на визуализацию не влияет.
 
         Args:
             layers: JSON-массив слоёв с параметрами стиля. Пример:
@@ -96,14 +114,14 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
             return json.dumps({"error": "layers должен быть непустым JSON-массивом."}, ensure_ascii=False)
 
         fig, ax = plt.subplots(figsize=(14, 12))
-
-        legend_handles: list = []
-        loaded_layers: list[str] = []
         all_bounds: list = []
 
-        # Загружаем контур лицензии заранее — он определяет extent карты
+        # Контур лицензии — задаёт видимую область
         lic_gdf = get_license_boundary(pid, store) if show_license else None
         view_bounds = get_license_view_bounds(lic_gdf, margin=license_margin)
+
+        # ── Проход 1: загрузка всех слоёв ────────────────────────────────────
+        records: list[dict] = []
 
         for spec in layer_specs:
             if not isinstance(spec, dict) or "layer_id" not in spec:
@@ -117,13 +135,12 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
 
             try:
                 gdf = load_and_reproject(gdb_path, resolved_id)
-            except Exception as e:
-                continue  # пропустить недоступный слой
+            except Exception:
+                continue
 
             if gdf.empty:
                 continue
 
-            # Обрезать слой по границам лицензии (если они есть)
             if view_bounds:
                 gdf = clip_to_view(gdf, view_bounds)
                 if gdf.empty:
@@ -131,34 +148,66 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
 
             gdf, _ = prepare_for_plot(gdf, max_features=50_000)
             all_bounds.append(gdf.total_bounds)
-            loaded_layers.append(resolved_id)
 
             gt = gdf.geometry.geom_type.mode().iloc[0] if len(gdf) > 0 else "Point"
             gt_key = gt if gt in DEFAULT_STYLES else "Point"
-
-            # Семантический стиль имеет приоритет над геометрическим дефолтом
             semantic = get_semantic_style(resolved_id, display_name, entry.get("feature_dataset"))
             base = semantic or DEFAULT_STYLES.get(gt_key, {})
 
-            # Параметры из spec перезаписывают base (agent override)
-            color     = spec.get("color",     base.get("color", "steelblue"))
-            alpha     = spec.get("alpha",     base.get("alpha", 0.85))
-            linewidth = spec.get("linewidth", base.get("linewidth", 1.0))
-            linestyle = spec.get("linestyle", base.get("linestyle", "-"))
-            markersize= spec.get("markersize", base.get("markersize", 10))
-            marker    = spec.get("marker",    base.get("marker", "o"))
-            edgecolor = spec.get("edgecolor", base.get("edgecolor", "none"))
-
             gt_lower = gt.lower()
+            is_relief = any(kw in resolved_id.lower() or kw in display_name.lower()
+                            for kw in _RELIEF_KEYWORDS)
+            style_spec = spec.get("style", "scatter")
 
-            # Рельефные слои — специализированный рендеринг: серые линии + подписи высот
-            _relief_keywords = ("relief", "рельеф", "изолин", "горизон", "contour")
-            _is_relief = any(kw in resolved_id.lower() or kw in display_name.lower()
-                             for kw in _relief_keywords)
+            records.append({
+                "spec": spec,
+                "resolved_id": resolved_id,
+                "display_name": display_name,
+                "label": label,
+                "gdf": gdf,
+                "gt_lower": gt_lower,
+                "is_relief": is_relief,
+                "style_spec": style_spec,
+                "color_field": spec.get("color_field"),
+                "cmap_spec": spec.get("colormap", "viridis"),
+                "color":     spec.get("color",     base.get("color", "steelblue")),
+                "alpha":     spec.get("alpha",     base.get("alpha", 0.85)),
+                "linewidth": spec.get("linewidth", base.get("linewidth", 1.0)),
+                "linestyle": spec.get("linestyle", base.get("linestyle", "-")),
+                "markersize":spec.get("markersize",base.get("markersize", 10)),
+                "marker":    spec.get("marker",    base.get("marker", "o")),
+                "edgecolor": spec.get("edgecolor", base.get("edgecolor", "none")),
+            })
 
-            style_spec   = spec.get("style", "scatter")
-            color_field  = spec.get("color_field")
-            cmap_spec    = spec.get("colormap", "viridis")
+        if not records:
+            plt.close(fig)
+            return json.dumps({"error": "Ни один слой не загружен успешно."}, ensure_ascii=False)
+
+        # ── Сортировка: крупные полигоны снизу … точки сверху ────────────────
+        records.sort(key=_sort_key)
+
+        # ── Проход 2: рендеринг в отсортированном порядке ────────────────────
+        legend_handles: list = []
+        loaded_layers: list[str] = []
+
+        for zorder, rec in enumerate(records, start=1):
+            gdf         = rec["gdf"]
+            gt_lower    = rec["gt_lower"]
+            is_relief   = rec["is_relief"]
+            style_spec  = rec["style_spec"]
+            color_field = rec["color_field"]
+            cmap_spec   = rec["cmap_spec"]
+            color       = rec["color"]
+            alpha       = rec["alpha"]
+            linewidth   = rec["linewidth"]
+            linestyle   = rec["linestyle"]
+            markersize  = rec["markersize"]
+            marker      = rec["marker"]
+            edgecolor   = rec["edgecolor"]
+            label       = rec["label"]
+            resolved_id = rec["resolved_id"]
+
+            loaded_layers.append(resolved_id)
 
             if "point" in gt_lower:
                 if style_spec == "density" and color_field and color_field in gdf.columns:
@@ -178,11 +227,10 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
                         _y.min():_y.max():complex(_ig),
                     ]
                     gz = griddata((_x, _y), _z, (gx, gy), method="linear")
-                    cf = ax.contourf(gx, gy, gz, levels=20, cmap=cmap_spec, zorder=2)
+                    cf = ax.contourf(gx, gy, gz, levels=20, cmap=cmap_spec, zorder=zorder)
                     plt.colorbar(cf, ax=ax, label=color_field, shrink=0.8)
-                    cs = ax.contour(gx, gy, gz, levels=10, colors="black",
-                                    linewidths=0.4, alpha=0.5, zorder=3)
-                    ax.clabel(cs, inline=True, fontsize=7, fmt="%.0f")
+                    ax.contour(gx, gy, gz, levels=10, colors="black",
+                               linewidths=0.4, alpha=0.5, zorder=zorder)
                     legend_handles.append(
                         Line2D([0], [0], color="gray", linewidth=6, label=label)
                     )
@@ -190,7 +238,7 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
                     ax.scatter(
                         gdf.geometry.x, gdf.geometry.y,
                         c=color, s=markersize, marker=marker,
-                        alpha=alpha, linewidths=0.3, edgecolors=edgecolor, zorder=3,
+                        alpha=alpha, linewidths=0.3, edgecolors=edgecolor, zorder=zorder,
                     )
                     legend_handles.append(
                         Line2D([0], [0], marker=marker, color="w",
@@ -198,8 +246,8 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
                     )
 
             elif "line" in gt_lower or "string" in gt_lower:
-                if _is_relief:
-                    gdf.plot(ax=ax, color="#888888", linewidth=0.5, alpha=0.5, zorder=7)
+                if is_relief:
+                    gdf.plot(ax=ax, color="#888888", linewidth=0.5, alpha=0.5, zorder=zorder)
                     elev_col = find_elevation_field(gdf)
                     if elev_col and view_bounds:
                         label_isolines(ax, gdf, elev_col, view_bounds, target=50)
@@ -208,25 +256,22 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
                     )
                 else:
                     gdf.plot(ax=ax, color=color, linewidth=linewidth,
-                             linestyle=linestyle, alpha=alpha, zorder=3)
+                             linestyle=linestyle, alpha=alpha, zorder=zorder)
                     legend_handles.append(
                         Line2D([0], [0], color=color, linewidth=2, linestyle=linestyle, label=label)
                     )
 
-            else:
+            else:  # polygons
                 gdf.plot(ax=ax, color=color, edgecolor=edgecolor,
-                         linewidth=linewidth, alpha=alpha, zorder=2)
+                         linewidth=linewidth, alpha=alpha, zorder=zorder)
                 legend_handles.append(
                     Patch(facecolor=color, edgecolor=edgecolor or "gray", label=label)
                 )
 
-        if not loaded_layers:
-            plt.close(fig)
-            return json.dumps({"error": "Ни один слой не загружен успешно."}, ensure_ascii=False)
-
-        # Контур лицензии последним (поверх всех слоёв)
+        # Контур лицензии поверх всех слоёв
+        lic_zorder = len(records) + 10
         if show_license and lic_gdf is not None:
-            draw_license_boundary(ax, lic_gdf)
+            draw_license_boundary(ax, lic_gdf, zorder=lic_zorder)
             legend_handles.append(
                 Line2D([0], [0], color="red", linewidth=2, linestyle="--", label="Контур лицензии")
             )
@@ -234,7 +279,6 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
         if show_legend and legend_handles:
             ax.legend(handles=legend_handles, loc="upper right", fontsize=8)
 
-        # Extent: сначала по контуру лицензии, иначе — по всем слоям
         if view_bounds:
             ax.set_xlim(view_bounds[0], view_bounds[2])
             ax.set_ylim(view_bounds[1], view_bounds[3])

@@ -221,8 +221,7 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
                         grid_z = griddata((_x, _y), _z, (grid_x, grid_y), method="linear")
                         cf = ax.contourf(grid_x, grid_y, grid_z, levels=20, cmap=resolved_cmap)
                         plt.colorbar(cf, ax=ax, label=make_colorbar_label(resolved_color_field, units), shrink=0.8)
-                        cs = ax.contour(grid_x, grid_y, grid_z, levels=10, colors="black", linewidths=0.4, alpha=0.5)
-                        ax.clabel(cs, inline=True, fontsize=7, fmt="%.0f")
+                        ax.contour(grid_x, grid_y, grid_z, levels=10, colors="black", linewidths=0.4, alpha=0.5)
                     else:
                         sc = ax.scatter(
                             gdf.geometry.x, gdf.geometry.y,

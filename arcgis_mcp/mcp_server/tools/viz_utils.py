@@ -86,13 +86,17 @@ def get_license_boundary(project_id: str, store) -> gpd.GeoDataFrame | None:
         return None
 
 
-def draw_license_boundary(ax: plt.Axes, lic_gdf: gpd.GeoDataFrame | None) -> None:
-    """Нарисовать контур лицензии на осях (zorder=10)."""
+def draw_license_boundary(
+    ax: plt.Axes,
+    lic_gdf: gpd.GeoDataFrame | None,
+    zorder: int = 10,
+) -> None:
+    """Нарисовать контур лицензии на осях."""
     if lic_gdf is None or lic_gdf.empty:
         return
     lic_gdf.boundary.plot(
         ax=ax, color="red", linewidth=1.8, linestyle="--",
-        label="Контур лицензии", zorder=10,
+        label="Контур лицензии", zorder=zorder,
     )
 
 
