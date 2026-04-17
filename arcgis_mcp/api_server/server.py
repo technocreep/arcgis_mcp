@@ -36,6 +36,7 @@ from arcgis_mcp.mcp_server.tools.izuchennost import make_tools as make_izuch_too
 from arcgis_mcp.mcp_server.tools.query import make_tools as make_query_tools
 from arcgis_mcp.mcp_server.tools.viz_plot_layer import make_tools as make_plot_layer_tools
 from arcgis_mcp.mcp_server.tools.viz_plot_overlay import make_tools as make_plot_overlay_tools
+from arcgis_mcp.mcp_server.tools.viz_plot_relief import make_tools as make_plot_relief_tools
 from arcgis_mcp.mcp_server.tools.viz_histogram import make_tools as make_plot_histogram_tools
 from arcgis_mcp.mcp_server.tools.viz_interactive import make_tools as make_plot_interactive_tools
 from arcgis_mcp.mcp_server.tools.datacube import make_tools as make_datacube_tools
@@ -85,6 +86,7 @@ query_features_fn, summarize_layer_fn = _qry
 
 (plot_layer_fn,) = make_plot_layer_tools(store, _state)
 (plot_overlay_fn,) = make_plot_overlay_tools(store, _state)
+(plot_relief_fn,) = make_plot_relief_tools(store, _state)
 (plot_histogram_fn,) = make_plot_histogram_tools(store, _state)
 (plot_interactive_fn,) = make_plot_interactive_tools(store, _state)
 
@@ -396,6 +398,35 @@ class PlotOverlayRequest(BaseModel):
     show_legend: bool = Field(True, description="Показывать легенду со списком слоёв")
     title: Optional[str] = Field(None, description="Заголовок карты (авто, если None)")
     output_format: str = Field("png", description='"png" или "svg"')
+
+
+class PlotReliefRequest(BaseModel):
+    layer_id: str = Field(..., description="ID или display_name слоя горизонталей рельефа")
+    project_id: Optional[str] = Field(None, description="ID проекта (необязательно, если уже выбран)")
+    show_rivers: bool = Field(True, description="Отображать слои рек поверх рельефа")
+    show_license: bool = Field(True, description="Рисовать контур лицензии")
+    title: Optional[str] = Field(None, description="Заголовок карты (авто, если None)")
+    output_format: str = Field("png", description='"png" или "svg"')
+
+
+@app.post(
+    "/plot_relief",
+    operation_id="plot_relief",
+    summary="Карта изолиний рельефа с подписями высот и реками",
+    tags=["visualization"],
+)
+async def plot_relief(req: PlotReliefRequest):
+    """Специализированная карта горизонталей рельефа.
+
+    Серые изолинии + адаптивные подписи высот + реки синим + контур лицензии.
+    Используй этот инструмент вместо plot_layer для слоёв рельефа/горизонталей.
+    """
+    return _parse(
+        plot_relief_fn(
+            req.layer_id, req.project_id, req.show_rivers,
+            req.show_license, req.title, req.output_format,
+        )
+    )
 
 
 @app.post(

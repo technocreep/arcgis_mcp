@@ -144,6 +144,12 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
 
             gt_lower = gt.lower()
 
+            # Слои рельефа/горизонталей рисуются поверх остальных (zorder=7)
+            _relief_keywords = ("relief", "рельеф", "изолин", "горизон", "contour")
+            _is_relief = any(kw in resolved_id.lower() or kw in display_name.lower()
+                             for kw in _relief_keywords)
+            _line_zorder = 7 if _is_relief else 3
+
             if "point" in gt_lower:
                 ax.scatter(
                     gdf.geometry.x, gdf.geometry.y,
@@ -157,7 +163,7 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
 
             elif "line" in gt_lower or "string" in gt_lower:
                 gdf.plot(ax=ax, color=color, linewidth=linewidth,
-                         linestyle=linestyle, alpha=alpha, zorder=3)
+                         linestyle=linestyle, alpha=alpha, zorder=_line_zorder)
                 legend_handles.append(
                     Line2D([0], [0], color=color, linewidth=2, linestyle=linestyle, label=label)
                 )
