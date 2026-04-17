@@ -104,16 +104,18 @@ def get_license_view_bounds(
     lic_gdf: gpd.GeoDataFrame | None,
     margin: float = 0.20,
 ) -> tuple[float, float, float, float] | None:
-    """Вернуть (minx, miny, maxx, maxy) по контуру лицензии + margin * max(ширина, высота).
+    """Вернуть (minx, miny, maxx, maxy) по контуру лицензии + margin × собственный размер.
 
-    Отступ одинаковый со всех сторон — пропорционален большей из сторон bbox лицензии.
+    dx = ширина_лицензии × margin, dy = высота_лицензии × margin.
+    Лицензия всегда занимает 1/(1+2·margin) долю видимой области по каждой оси.
     None если нет контура.
     """
     if lic_gdf is None or lic_gdf.empty:
         return None
     b = lic_gdf.total_bounds  # [minx, miny, maxx, maxy]
-    m = max(b[2] - b[0], b[3] - b[1]) * margin
-    return (float(b[0] - m), float(b[1] - m), float(b[2] + m), float(b[3] + m))
+    dx = (b[2] - b[0]) * margin
+    dy = (b[3] - b[1]) * margin
+    return (float(b[0] - dx), float(b[1] - dy), float(b[2] + dx), float(b[3] + dy))
 
 
 def clip_to_view(
