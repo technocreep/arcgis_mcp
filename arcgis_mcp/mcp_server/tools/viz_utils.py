@@ -296,11 +296,13 @@ def upload_to_minio(local_path: str, project_id: str) -> str | None:
     if client is None:
         return None
     try:
+        from urllib.parse import quote
         from arcgis_mcp.config import MINIO_BUCKET, MINIO_PUBLIC_HOST
         filename = Path(local_path).name
         object_name = f"{project_id}/{filename}"
         client.fput_object(MINIO_BUCKET, object_name, local_path)
-        return f"http://{MINIO_PUBLIC_HOST}/{MINIO_BUCKET}/{object_name}"
+        encoded = quote(object_name, safe="/")
+        return f"http://{MINIO_PUBLIC_HOST}/{MINIO_BUCKET}/{encoded}"
     except Exception:
         return None
 
