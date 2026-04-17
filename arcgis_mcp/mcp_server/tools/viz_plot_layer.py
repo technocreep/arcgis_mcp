@@ -14,6 +14,7 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 from matplotlib.patches import Patch
 import numpy as np
+from scipy.interpolate import griddata
 
 from ..project_store import ProjectStore
 from .viz_utils import (
@@ -172,9 +173,16 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
         # ----------------------------------------------------------------
         # Рендеринг
         # ----------------------------------------------------------------
-        # Адаптивный gridsize для hexbin: целевой диапазон 10–50 гексагонов по ширине.
-        # Используем sqrt(n) как меру «желаемой» детализации, но зажимаем в [10, 50].
-        _hex_gridsize = int(np.clip(np.sqrt(len(gdf) / 4), 10, 50))
+        # Контур лицензии — задаёт видимую область, нужен для расчёта сетки интерполяции.
+        lic_gdf = get_license_boundary(pid, store) if show_license else None
+        view_bounds = get_license_view_bounds(lic_gdf)
+
+        # Разрешение сетки интерполяции: ~300 точек в ширину области лицензии, cap 500.
+        if view_bounds:
+            _lic_dx = (view_bounds[2] - view_bounds[0]) or dx
+            _interp_grid = min(500, max(200, round(300 * dx / _lic_dx)))
+        else:
+            _interp_grid = 300
 
         stats_dict = {}
         is_point = "point" in gt_lower or resolved_style in ("scatter", "markers", "points", "density")
@@ -190,15 +198,19 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
 
                 if is_point:
                     if resolved_style == "density":
-                        hb = ax.hexbin(
-                            gdf.geometry.x, gdf.geometry.y,
-                            C=col_series.values,
-                            reduce_C_function=np.mean,
-                            gridsize=_hex_gridsize,
-                            cmap=resolved_cmap,
-                            mincnt=1,
-                        )
-                        plt.colorbar(hb, ax=ax, label=make_colorbar_label(resolved_color_field, units), shrink=0.8)
+                        _x = gdf.geometry.x.values
+                        _y = gdf.geometry.y.values
+                        _mask = ~np.isnan(col_series.values)
+                        _x, _y, _z = _x[_mask], _y[_mask], col_series.values[_mask]
+                        grid_x, grid_y = np.mgrid[
+                            _x.min():_x.max():complex(_interp_grid),
+                            _y.min():_y.max():complex(_interp_grid),
+                        ]
+                        grid_z = griddata((_x, _y), _z, (grid_x, grid_y), method="linear")
+                        cf = ax.contourf(grid_x, grid_y, grid_z, levels=20, cmap=resolved_cmap)
+                        plt.colorbar(cf, ax=ax, label=make_colorbar_label(resolved_color_field, units), shrink=0.8)
+                        cs = ax.contour(grid_x, grid_y, grid_z, levels=10, colors="black", linewidths=0.4, alpha=0.5)
+                        ax.clabel(cs, inline=True, fontsize=7, fmt="%.0f")
                     else:
                         sc = ax.scatter(
                             gdf.geometry.x, gdf.geometry.y,
@@ -246,21 +258,12 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
                 gdf["_color"] = col_series.astype(str).map(color_map)
 
                 if is_point:
-                    if resolved_style == "density":
-                        hb = ax.hexbin(
-                            gdf.geometry.x, gdf.geometry.y,
-                            gridsize=_hex_gridsize,
-                            cmap="YlOrRd",
-                            mincnt=1,
-                        )
-                        plt.colorbar(hb, ax=ax, label="Количество объектов", shrink=0.8)
-                    else:
-                        ax.scatter(
-                            gdf.geometry.x, gdf.geometry.y,
-                            c=list(gdf["_color"].fillna("gray")),
-                            s=4 if len(gdf) > 10_000 else 20,
-                            alpha=0.9, linewidths=0,
-                        )
+                    ax.scatter(
+                        gdf.geometry.x, gdf.geometry.y,
+                        c=list(gdf["_color"].fillna("gray")),
+                        s=4 if len(gdf) > 10_000 else 20,
+                        alpha=0.9, linewidths=0,
+                    )
                 elif is_line:
                     gdf.plot(ax=ax, color=gdf["_color"].fillna("gray"), linewidth=0.8, alpha=0.85)
                 else:
@@ -284,22 +287,13 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
                 "steelblue" if is_line else ("steelblue" if is_point else "lightblue"),
             )
             if is_point:
-                if resolved_style == "density":
-                    hb = ax.hexbin(
-                        gdf.geometry.x, gdf.geometry.y,
-                        gridsize=80,
-                        cmap="YlOrRd",
-                        mincnt=1,
-                    )
-                    plt.colorbar(hb, ax=ax, label="Количество объектов", shrink=0.8)
-                else:
-                    ax.scatter(
-                        gdf.geometry.x, gdf.geometry.y,
-                        c=fallback_color,
-                        marker=(sem or {}).get("marker", "o"),
-                        s=(sem or {}).get("markersize", 4 if len(gdf) > 10_000 else 20),
-                        alpha=0.85, linewidths=0,
-                    )
+                ax.scatter(
+                    gdf.geometry.x, gdf.geometry.y,
+                    c=fallback_color,
+                    marker=(sem or {}).get("marker", "o"),
+                    s=(sem or {}).get("markersize", 4 if len(gdf) > 10_000 else 20),
+                    alpha=0.85, linewidths=0,
+                )
             elif is_line:
                 gdf.plot(
                     ax=ax, color=fallback_color,
@@ -319,9 +313,7 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
         # Контур лицензии
         # ----------------------------------------------------------------
         if show_license:
-            lic_gdf = get_license_boundary(pid, store)
             draw_license_boundary(ax, lic_gdf)
-            view_bounds = get_license_view_bounds(lic_gdf)
             if view_bounds:
                 ax.set_xlim(view_bounds[0], view_bounds[2])
                 ax.set_ylim(view_bounds[1], view_bounds[3])
