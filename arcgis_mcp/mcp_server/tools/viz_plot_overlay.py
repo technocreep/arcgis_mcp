@@ -30,6 +30,8 @@ from .viz_utils import (
     save_figure,
     upload_to_minio,
     DEFAULT_STYLES,
+    find_elevation_field,
+    label_isolines,
 )
 
 
@@ -144,11 +146,10 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
 
             gt_lower = gt.lower()
 
-            # Слои рельефа/горизонталей рисуются поверх остальных (zorder=7)
+            # Рельефные слои — специализированный рендеринг: серые линии + подписи высот
             _relief_keywords = ("relief", "рельеф", "изолин", "горизон", "contour")
             _is_relief = any(kw in resolved_id.lower() or kw in display_name.lower()
                              for kw in _relief_keywords)
-            _line_zorder = 7 if _is_relief else 3
 
             if "point" in gt_lower:
                 ax.scatter(
@@ -162,8 +163,14 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
                 )
 
             elif "line" in gt_lower or "string" in gt_lower:
-                gdf.plot(ax=ax, color=color, linewidth=linewidth,
-                         linestyle=linestyle, alpha=alpha, zorder=_line_zorder)
+                if _is_relief:
+                    gdf.plot(ax=ax, color="#888888", linewidth=0.5, alpha=0.5, zorder=7)
+                    elev_col = find_elevation_field(gdf)
+                    if elev_col and view_bounds:
+                        label_isolines(ax, gdf, elev_col, view_bounds, target=50)
+                else:
+                    gdf.plot(ax=ax, color=color, linewidth=linewidth,
+                             linestyle=linestyle, alpha=alpha, zorder=3)
                 legend_handles.append(
                     Line2D([0], [0], color=color, linewidth=2, linestyle=linestyle, label=label)
                 )

@@ -412,3 +412,78 @@ def auto_tooltip_fields(gdf: gpd.GeoDataFrame, manifest_layer: dict) -> list[str
             break
 
     return fields
+
+
+# ---------------------------------------------------------------------------
+# Рельеф — поиск поля высоты и подписи изолиний
+# ---------------------------------------------------------------------------
+
+_ELEV_CANDIDATES = [
+    "phlr_abs", "cont", "contour", "elev", "elevation", "height", "z", "alt",
+    "отметка", "высота", "горизонталь", "h",
+]
+_ELEV_SKIP = {
+    "objectid", "fid", "shape_length", "shape_area", "globalid",
+    "fnode_", "tnode_", "lpoly_", "rpoly_", "phlr_", "phlr_id",
+}
+
+
+def find_elevation_field(gdf: gpd.GeoDataFrame) -> str | None:
+    """Найти поле высоты среди атрибутов линейного слоя рельефа.
+
+    Проверяет кандидатов по имени (включая string→float конвертацию),
+    затем fallback на первое числовое поле без топологических служебных полей.
+    """
+    import pandas as pd
+
+    cols_lower = {c.lower(): c for c in gdf.columns if c.lower() != "geometry"}
+    for c in _ELEV_CANDIDATES:
+        if c not in cols_lower:
+            continue
+        col = cols_lower[c]
+        series = gdf[col]
+        if np.issubdtype(series.dtype, np.number):
+            return col
+        converted = pd.to_numeric(series, errors="coerce")
+        if converted.notna().any():
+            gdf[col] = converted
+            return col
+    for col in gdf.columns:
+        if col.lower() in _ELEV_SKIP:
+            continue
+        if np.issubdtype(gdf[col].dtype, np.number):
+            return col
+    return None
+
+
+def label_isolines(
+    ax: plt.Axes,
+    gdf: gpd.GeoDataFrame,
+    elev_col: str,
+    view: tuple[float, float, float, float],
+    target: int = 50,
+) -> None:
+    """Подписать изолинии высоты в середине каждой N-й линии.
+
+    Количество подписей адаптируется по числу видимых изолиний (target в видимой области).
+    """
+    from shapely.geometry import box as _box
+
+    visible_count = int(gdf.intersects(_box(*view)).sum())
+    every_n = max(1, round(visible_count / target))
+    count = 0
+    for _, row in gdf.iterrows():
+        val = row.get(elev_col)
+        if val is None or (isinstance(val, float) and np.isnan(val)):
+            continue
+        count += 1
+        if count % every_n != 0:
+            continue
+        mid = row.geometry.interpolate(0.5, normalized=True)
+        ax.annotate(
+            str(int(round(val))),
+            xy=(mid.x, mid.y),
+            fontsize=6, color="saddlebrown",
+            ha="center", va="center",
+            bbox=dict(boxstyle="round,pad=0.1", fc="white", ec="none", alpha=0.65),
+        )

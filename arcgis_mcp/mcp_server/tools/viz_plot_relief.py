@@ -6,10 +6,7 @@ import json
 import time
 from typing import Callable
 
-import numpy as np
-import pandas as pd
 import matplotlib.pyplot as plt
-from shapely.geometry import box as _box
 
 from ..project_store import ProjectStore
 from .viz_utils import (
@@ -19,59 +16,11 @@ from .viz_utils import (
     get_license_view_bounds,
     save_figure,
     upload_to_minio,
+    find_elevation_field,
+    label_isolines,
 )
 
-_ELEV_CANDIDATES = [
-    "phlr_abs", "cont", "contour", "elev", "elevation", "height", "z", "alt",
-    "отметка", "высота", "горизонталь", "h",
-]
-_ELEV_SKIP = {
-    "objectid", "fid", "shape_length", "shape_area", "globalid",
-    "fnode_", "tnode_", "lpoly_", "rpoly_", "phlr_", "phlr_id",
-}
 _RIVER_KEYWORDS = ["river", "реки", "река", "hydro", "гидро", "water", "stream", "ручей"]
-
-
-def _find_elevation_field(gdf) -> str | None:
-    cols_lower = {c.lower(): c for c in gdf.columns if c.lower() != "geometry"}
-    for c in _ELEV_CANDIDATES:
-        if c not in cols_lower:
-            continue
-        col = cols_lower[c]
-        series = gdf[col]
-        if np.issubdtype(series.dtype, np.number):
-            return col
-        converted = pd.to_numeric(series, errors="coerce")
-        if converted.notna().any():
-            gdf[col] = converted
-            return col
-    for col in gdf.columns:
-        if col.lower() in _ELEV_SKIP:
-            continue
-        if np.issubdtype(gdf[col].dtype, np.number):
-            return col
-    return None
-
-
-def _label_isolines(ax, gdf, elev_col: str, view: tuple, target: int = 50):
-    visible_count = int(gdf.intersects(_box(*view)).sum())
-    every_n = max(1, round(visible_count / target))
-    count = 0
-    for _, row in gdf.iterrows():
-        val = row.get(elev_col)
-        if val is None or (isinstance(val, float) and np.isnan(val)):
-            continue
-        count += 1
-        if count % every_n != 0:
-            continue
-        mid = row.geometry.interpolate(0.5, normalized=True)
-        ax.annotate(
-            str(int(round(val))),
-            xy=(mid.x, mid.y),
-            fontsize=6, color="saddlebrown",
-            ha="center", va="center",
-            bbox=dict(boxstyle="round,pad=0.1", fc="white", ec="none", alpha=0.65),
-        )
 
 
 def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
@@ -121,7 +70,7 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
         if gdf.empty:
             return json.dumps({"error": f"Слой '{resolved_id}' пустой."}, ensure_ascii=False)
 
-        elev_col = _find_elevation_field(gdf)
+        elev_col = find_elevation_field(gdf)
 
         # Контур лицензии — определяет видимую область
         lic_gdf = get_license_boundary(pid, store) if show_license else None
@@ -142,7 +91,7 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
         # Рельеф — серые линии + подписи высот
         gdf.plot(ax=ax, color="#888888", linewidth=0.5, alpha=0.5, zorder=4)
         if elev_col:
-            _label_isolines(ax, gdf, elev_col, view, target=50)
+            label_isolines(ax, gdf, elev_col, view, target=50)
 
         # Реки
         if show_rivers:
