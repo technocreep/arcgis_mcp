@@ -341,7 +341,10 @@ class PlotLayerRequest(BaseModel):
     project_id: Optional[str] = Field(None, description="ID проекта (необязательно, если уже выбран)")
     color_field: Optional[str] = Field(
         None,
-        description="Поле для раскраски. Числовое → colorbar, категориальное → легенда. "
+        description="Поле для раскраски. "
+                    "Числовое → градиентная заливка + colorbar. "
+                    "Категориальное (строки) → palette tab20 + легенда с подписями значений. "
+                    "Для полигональных геологических слоёв используй поле с типом породы, свитой или возрастом — каждая категория получит свой цвет. "
                     "Если None — единый цвет.",
     )
     style: str = Field(

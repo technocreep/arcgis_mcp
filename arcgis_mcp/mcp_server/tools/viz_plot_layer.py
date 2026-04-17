@@ -78,7 +78,11 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
         Args:
             layer_id: ID или display_name слоя из manifest.
             project_id: ID проекта (необязательно, если уже выбран через get_project_summary).
-            color_field: Поле для раскраски. Числовое → colorbar, категориальное → легенда.
+            color_field: Поле для раскраски.
+                         Числовое → градиентная заливка + colorbar.
+                         Категориальное (строки) → уникальные значения → palette tab20 + легенда.
+                         Для полигональных геологических слоёв передавай поле с типом породы,
+                         свитой, возрастом и т.п. — каждая категория получит свой цвет.
                          Если None — единый цвет (steelblue/lightblue/black).
             style: Стиль рендеринга — выбирай явно по типу слоя:
                    "markers"  — точечный слой, мало объектов (≤500): крупные маркеры.
@@ -341,8 +345,8 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
         url = upload_to_minio(out_path, pid)
 
         result: dict = {
-            # "file": out_path,
-            # "url": url,
+            "file": out_path,
+            "url": url,
             "markdown": f"![{display_name}]({url})" if url else None,
             "layer": resolved_id,
             "display_name": display_name,

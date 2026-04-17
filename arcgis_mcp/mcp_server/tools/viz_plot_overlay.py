@@ -255,8 +255,8 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
         url = upload_to_minio(out_path, pid)
 
         return json.dumps({
-            # "file": out_path,
-            # "url": url,
+            "file": out_path,
+            "url": url,
             "markdown": f"![Карта]({url})" if url else None,
             "layers_rendered": loaded_layers,
             "layers_requested": len(layer_specs),
