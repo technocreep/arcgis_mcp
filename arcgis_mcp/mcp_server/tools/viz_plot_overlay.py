@@ -14,6 +14,7 @@ import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 import numpy as np
+from scipy.interpolate import griddata
 
 from ..project_store import ProjectStore
 from .viz_utils import (
@@ -66,8 +67,12 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
 
                 Доступные ключи для каждого слоя:
                   layer_id (обязательно), color, alpha, linewidth, linestyle,
-                  markersize, marker, edgecolor, label (для легенды).
-                Если color не указан — авто по типу геометрии.
+                  markersize, marker, edgecolor, label (для легенды),
+                  style ("scatter"|"density"|"lines"|"polygons"),
+                  color_field (поле для раскраски/интерполяции),
+                  colormap (matplotlib colormap, напр. "RdBu_r").
+                style="density" + color_field → интерполяция griddata + contourf для точечных слоёв.
+                Рельефные слои (relief/горизонтали) рисуются серым с подписями высот автоматически.
 
             project_id: ID проекта (необязательно, если уже выбран).
             show_license: Рисовать контур лицензии последним (по умолчанию True).
@@ -151,16 +156,46 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
             _is_relief = any(kw in resolved_id.lower() or kw in display_name.lower()
                              for kw in _relief_keywords)
 
+            style_spec   = spec.get("style", "scatter")
+            color_field  = spec.get("color_field")
+            cmap_spec    = spec.get("colormap", "viridis")
+
             if "point" in gt_lower:
-                ax.scatter(
-                    gdf.geometry.x, gdf.geometry.y,
-                    c=color, s=markersize, marker=marker,
-                    alpha=alpha, linewidths=0.3, edgecolors=edgecolor, zorder=3,
-                )
-                legend_handles.append(
-                    Line2D([0], [0], marker=marker, color="w",
-                           markerfacecolor=color, markersize=8, label=label)
-                )
+                if style_spec == "density" and color_field and color_field in gdf.columns:
+                    col_vals = gdf[color_field]
+                    _x = gdf.geometry.x.values
+                    _y = gdf.geometry.y.values
+                    _mask = ~np.isnan(col_vals.values.astype(float))
+                    _x, _y, _z = _x[_mask], _y[_mask], col_vals.values.astype(float)[_mask]
+                    _dx = (_x.max() - _x.min()) or 1
+                    if view_bounds:
+                        _lic_dx = (view_bounds[2] - view_bounds[0]) or _dx
+                        _ig = min(500, max(200, round(300 * _dx / _lic_dx)))
+                    else:
+                        _ig = 300
+                    gx, gy = np.mgrid[
+                        _x.min():_x.max():complex(_ig),
+                        _y.min():_y.max():complex(_ig),
+                    ]
+                    gz = griddata((_x, _y), _z, (gx, gy), method="linear")
+                    cf = ax.contourf(gx, gy, gz, levels=20, cmap=cmap_spec, zorder=2)
+                    plt.colorbar(cf, ax=ax, label=color_field, shrink=0.8)
+                    cs = ax.contour(gx, gy, gz, levels=10, colors="black",
+                                    linewidths=0.4, alpha=0.5, zorder=3)
+                    ax.clabel(cs, inline=True, fontsize=7, fmt="%.0f")
+                    legend_handles.append(
+                        Line2D([0], [0], color="gray", linewidth=6, label=label)
+                    )
+                else:
+                    ax.scatter(
+                        gdf.geometry.x, gdf.geometry.y,
+                        c=color, s=markersize, marker=marker,
+                        alpha=alpha, linewidths=0.3, edgecolors=edgecolor, zorder=3,
+                    )
+                    legend_handles.append(
+                        Line2D([0], [0], marker=marker, color="w",
+                               markerfacecolor=color, markersize=8, label=label)
+                    )
 
             elif "line" in gt_lower or "string" in gt_lower:
                 if _is_relief:
@@ -168,12 +203,15 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
                     elev_col = find_elevation_field(gdf)
                     if elev_col and view_bounds:
                         label_isolines(ax, gdf, elev_col, view_bounds, target=50)
+                    legend_handles.append(
+                        Line2D([0], [0], color="#888888", linewidth=2, label=label)
+                    )
                 else:
                     gdf.plot(ax=ax, color=color, linewidth=linewidth,
                              linestyle=linestyle, alpha=alpha, zorder=3)
-                legend_handles.append(
-                    Line2D([0], [0], color=color, linewidth=2, linestyle=linestyle, label=label)
-                )
+                    legend_handles.append(
+                        Line2D([0], [0], color=color, linewidth=2, linestyle=linestyle, label=label)
+                    )
 
             else:
                 gdf.plot(ax=ax, color=color, edgecolor=edgecolor,
