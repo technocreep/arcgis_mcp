@@ -346,7 +346,14 @@ class PlotLayerRequest(BaseModel):
     )
     style: str = Field(
         "auto",
-        description='"auto" | "points" | "lines" | "polygons". Auto определяет по geometry_type.',
+        description=(
+            'Стиль рендеринга — выбирай явно: '
+            '"markers" — точки ≤500; '
+            '"scatter" — точки 500–10 000; '
+            '"density" — точки >10 000 с числовым полем (геофизика): griddata-интерполяция → contourf + изолинии; '
+            '"lines" — линейный слой; '
+            '"polygons" — полигональный слой.'
+        ),
     )
     colormap: str = Field(
         "auto",
@@ -367,12 +374,12 @@ class PlotLayerRequest(BaseModel):
     tags=["visualization"],
 )
 async def plot_layer(req: PlotLayerRequest):
-    """Главный инструмент визуализации: один слой на статичной карте.
+    """Визуализация одного слоя на статичной карте.
 
-    Автоматически подбирает стиль рендеринга и colormap по единицам измерения из manifest.
-    Числовые поля → colorbar со срезом по квантилям; категориальные → легенда tab20.
-    Контур лицензии рисуется последним (show_license=True по умолчанию).
-    Возвращает путь к PNG-файлу и field_stats.
+    Стиль указывай явно (см. параметр style). Числовые поля → colorbar; категориальные → легенда tab20.
+    Для слоёв рельефа/горизонталей используй plot_relief.
+    Для геофизических точечных слоёв >10 000 объектов используй style="density".
+    Контур лицензии рисуется поверх (show_license=True по умолчанию).
     """
     return _parse(
         plot_layer_fn(
@@ -386,11 +393,14 @@ class PlotOverlayRequest(BaseModel):
     layers: str = Field(
         ...,
         description=(
-            'JSON-массив слоёв с параметрами стиля. '
-            'Пример: \'[{"layer_id":"relief","color":"brown","linewidth":0.2,"alpha":0.3},'
-            '{"layer_id":"Скважины_ГСК","color":"red","markersize":15}]\'. '
-            'Ключи: layer_id (обязательно), color, alpha, linewidth, linestyle, '
-            'markersize, marker, edgecolor, label.'
+            'JSON-массив слоёв. Первый = подложка, последний = поверх. '
+            'Пример: \'[{"layer_id":"mms_r","style":"density","color_field":"дельта_T","colormap":"RdBu_r"},'
+            '{"layer_id":"relief"}]\'. '
+            'Ключи: layer_id (обязательно), style ("scatter"|"density"|"lines"|"polygons"), '
+            'color_field (поле для density-интерполяции), colormap, '
+            'color, alpha, linewidth, linestyle, markersize, marker, edgecolor, label. '
+            'style="density"+color_field → griddata-интерполяция+contourf для точечных геофизических слоёв. '
+            'Рельефные слои (relief/горизонтали) рисуются серым с подписями высот автоматически.'
         ),
     )
     project_id: Optional[str] = Field(None, description="ID проекта (необязательно, если уже выбран)")
