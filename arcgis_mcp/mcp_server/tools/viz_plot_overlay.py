@@ -113,12 +113,23 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
         if not isinstance(layer_specs, list) or not layer_specs:
             return json.dumps({"error": "layers должен быть непустым JSON-массивом."}, ensure_ascii=False)
 
-        fig, ax = plt.subplots(figsize=(14, 12))
         all_bounds: list = []
 
         # Контур лицензии — задаёт видимую область
         lic_gdf = get_license_boundary(pid, store) if show_license else None
         view_bounds = get_license_view_bounds(lic_gdf, margin=license_margin)
+
+        # Размер фигуры из соотношения сторон view_bounds — чтобы set_aspect("equal")
+        # не добавлял пустых полей сверху/снизу
+        if view_bounds:
+            _vdx = (view_bounds[2] - view_bounds[0]) or 1
+            _vdy = (view_bounds[3] - view_bounds[1]) or 1
+            _ratio = _vdx / _vdy
+        else:
+            _ratio = 14 / 12
+        _fig_w = 12
+        _fig_h = max(6, min(14, _fig_w / max(_ratio, 0.3)))
+        fig, ax = plt.subplots(figsize=(_fig_w, _fig_h))
 
         # ── Проход 1: загрузка всех слоёв ────────────────────────────────────
         records: list[dict] = []
