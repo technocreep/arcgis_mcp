@@ -7,11 +7,14 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any, Callable
 
 import fiona
 import geopandas as gpd
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 from ..project_store import ProjectStore
 
@@ -215,6 +218,12 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
         units = layer_entry.get("units")
         stats: list[dict] = []
 
+        logger.info(
+            "summarize_layer start: project=%s layer_id=%s feature_count=%s columns=%s",
+            pid, layer_id, feature_count,
+            [(c, str(gdf[c].dtype)) for c in gdf.columns if c != "geometry"],
+        )
+
         for col in gdf.columns:
             if col == "geometry":
                 continue
@@ -222,7 +231,18 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
             nulls = int(series.isna().sum())
             entry: dict = {"field": col, "nulls": nulls}
 
-            if np.issubdtype(series.dtype, np.number):
+            logger.debug("summarize_layer col=%s dtype=%s", col, series.dtype)
+
+            try:
+                is_numeric = np.issubdtype(series.dtype, np.number)
+            except TypeError:
+                logger.warning(
+                    "summarize_layer: np.issubdtype failed for col=%s dtype=%r — treating as categorical",
+                    col, series.dtype,
+                )
+                is_numeric = False
+
+            if is_numeric:
                 valid = series.dropna()
                 if len(valid) > 0:
                     suffix = f" {units}" if units else ""
