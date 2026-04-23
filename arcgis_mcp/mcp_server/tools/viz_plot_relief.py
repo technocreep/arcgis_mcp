@@ -131,14 +131,10 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
         out_path = save_figure(fig, pid, f"relief_{int(time.time())}", fmt=output_format)
         url = upload_to_minio(out_path, pid)
 
-        return json.dumps({
-            "file": out_path,
-            "url": url,
-            "markdown": f"![{display_name}]({url})" if url else None,
-            "layer": resolved_id,
-            "display_name": display_name,
-            "elevation_field": elev_col,
-            "feature_count": len(gdf),
-        }, ensure_ascii=False, indent=2)
+        if url:
+            result = {"markdown": f"![{display_name}]({url})", "display_name": display_name, "elevation_field": elev_col}
+        else:
+            result = {"file": out_path, "display_name": display_name, "elevation_field": elev_col}
+        return json.dumps(result, ensure_ascii=False, indent=2)
 
     return [plot_relief]

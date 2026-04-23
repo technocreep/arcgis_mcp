@@ -249,14 +249,16 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
 
         url = upload_to_minio(str(out_path), pid)
 
-        result: dict = {
-            "file": str(out_path),
-            "url": url,
-            "link": f"[Открыть интерактивную карту]({url})" if url else None,
-            "layers_rendered": list(loaded.keys()),
-            "map_center": map_center,
-            "zoom": zoom,
-        }
+        if url:
+            result: dict = {
+                "link": f"[Открыть интерактивную карту]({url})",
+                "layers_rendered": list(loaded.keys()),
+            }
+        else:
+            result = {
+                "file": str(out_path),
+                "layers_rendered": list(loaded.keys()),
+            }
         if truncated_warnings:
             result["warnings"] = truncated_warnings
 

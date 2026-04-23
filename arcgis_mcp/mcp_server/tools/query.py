@@ -168,20 +168,24 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
             if selected:
                 gdf = gdf[selected]
 
-        # Сериализация без геометрии
-        rows = [_row_to_dict(row) for row in gdf.drop(columns=["geometry"], errors="ignore").to_dict("records")]
+        # Сериализация без геометрии — колоночный формат (ключи один раз)
+        df_clean = gdf.drop(columns=["geometry"], errors="ignore")
+        headers = list(df_clean.columns)
+        rows = [
+            [_safe_val(v) for v in record.values()]
+            for record in df_clean.to_dict("records")
+        ]
 
         result: dict = {
-            "layer": layer_entry.get("display_name", layer_id),
             "layer_id": layer_id,
             "total_after_filter": total_after_filter,
-            "returned": len(rows),
-            "features": rows,
+            "headers": headers,
+            "rows": rows,
         }
         if warning:
             result["warning"] = warning
         if filters_dict:
-            result["applied_filters"] = filters_dict
+            result["filters"] = ", ".join(f"{k}={v}" for k, v in filters_dict.items())
 
         return json.dumps(result, ensure_ascii=False, indent=2)
 
@@ -229,7 +233,6 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
                 continue
             series = gdf[col]
             nulls = int(series.isna().sum())
-            entry: dict = {"field": col, "nulls": nulls}
 
             logger.debug("summarize_layer col=%s dtype=%s", col, series.dtype)
 
@@ -246,26 +249,32 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
                 valid = series.dropna()
                 if len(valid) > 0:
                     suffix = f" {units}" if units else ""
-                    entry["type"] = "numeric"
-                    entry["min"] = f"{float(valid.min()):.6g}{suffix}"
-                    entry["max"] = f"{float(valid.max()):.6g}{suffix}"
-                    entry["mean"] = f"{float(valid.mean()):.6g}{suffix}"
-                    entry["std"] = f"{float(valid.std()):.4g}"
+                    mn = float(valid.min())
+                    mx = float(valid.max())
+                    mean = float(valid.mean())
+                    std = float(valid.std())
+                    null_str = f" [{nulls} nulls]" if nulls else ""
+                    line = f"{col}  float  {mn:.6g}…{mx:.6g}{suffix}  mean:{mean:.6g}{suffix}  std:{std:.4g}{null_str}"
+                    stats.append(line)
+                    continue
             else:
                 valid = series.dropna().astype(str)
-                vc = valid.value_counts().head(20)
-                entry["type"] = "categorical"
-                entry["unique_count"] = int(valid.nunique())
-                entry["top_values"] = {str(k): int(v) for k, v in vc.items()}
+                vc = valid.value_counts().head(5)
+                uniq = int(valid.nunique())
+                top_str = "/".join(f"{k}×{v}" for k, v in vc.items())
+                if uniq > 5:
+                    top_str += "/…"
+                null_str = f" [{nulls} nulls]" if nulls else ""
+                line = f"{col}  str  {uniq} uniq{null_str}: {top_str}"
+                stats.append(line)
+                continue
 
-            stats.append(entry)
+            stats.append(col)  # поле без значений
 
         return json.dumps({
-            "layer": layer_entry.get("display_name", layer_id),
             "layer_id": layer_id,
             "feature_count": feature_count,
-            "units": units,
-            "fields_stats": stats,
+            "fields": stats,
         }, ensure_ascii=False, indent=2)
 
     return [query_features, summarize_layer]

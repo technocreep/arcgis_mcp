@@ -344,18 +344,10 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
         out_path = save_figure(fig, pid, f"{safe_name}_{int(time.time())}", fmt=output_format)
         url = upload_to_minio(out_path, pid)
 
-        result: dict = {
-            "file": out_path,
-            "url": url,
-            "markdown": f"![{display_name}]({url})" if url else None,
-            "layer": resolved_id,
-            "display_name": display_name,
-            "feature_count": len(gdf),
-            "geometry_type": geom_type,
-            "color_field": resolved_color_field,
-            "colormap": resolved_cmap,
-            "style": resolved_style,
-        }
+        if url:
+            result: dict = {"markdown": f"![{display_name}]({url})", "display_name": display_name}
+        else:
+            result = {"file": out_path, "display_name": display_name}
         if stats_dict:
             result["field_stats"] = stats_dict
         if downsampled:

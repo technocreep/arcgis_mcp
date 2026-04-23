@@ -309,12 +309,11 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
         out_path = save_figure(fig, pid, out_name, fmt=output_format)
         url = upload_to_minio(out_path, pid)
 
-        return json.dumps({
-            "file": out_path,
-            "url": url,
-            "markdown": f"![Карта]({url})" if url else None,
-            "layers_rendered": loaded_layers,
-            "layers_requested": len(layer_specs),
-        }, ensure_ascii=False, indent=2)
+        rendered_names = [r["display_name"] for r in records]
+        if url:
+            result = {"markdown": f"![Карта]({url})", "layers_rendered": rendered_names}
+        else:
+            result = {"file": out_path, "layers_rendered": rendered_names}
+        return json.dumps(result, ensure_ascii=False, indent=2)
 
     return [plot_overlay]

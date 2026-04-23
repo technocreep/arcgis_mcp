@@ -11,6 +11,32 @@ from typing import Callable
 from ..project_store import ProjectStore
 
 
+def _fmt_field(f: dict, units: str | None) -> str:
+    """Форматировать поле слоя в одну компактную строку."""
+    name = f["name"]
+    dtype = f.get("dtype", "")
+    nulls = f.get("nulls") or 0
+
+    null_str = f" [{nulls} nulls]" if nulls else ""
+
+    # Числовое поле
+    if f.get("min") is not None:
+        suffix = f" {units}" if units else ""
+        range_str = f"{f['min']:.4g}…{f['max']:.4g}{suffix}"
+        mean_str = f"  mean:{f['mean']:.4g}{suffix}" if f.get("mean") is not None else ""
+        return f"{name}  {dtype}  {range_str}{mean_str}{null_str}"
+
+    # Категориальное поле
+    if f.get("unique_count") is not None:
+        top = f.get("top_values") or {}
+        top_str = "/".join(list(top.keys())[:4])
+        if len(top) > 4:
+            top_str += "/…"
+        return f"{name}  {dtype}  {f['unique_count']} uniq{null_str}: {top_str}"
+
+    return f"{name}  {dtype}{null_str}"
+
+
 def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
     """Вернуть список P0-инструментов, связанных с хранилищем и состоянием."""
 
@@ -45,7 +71,6 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
                 }
                 for p in projects
             ],
-            "hint": "Для работы с проектом вызови get_project_summary(project_id=...)"
         }, ensure_ascii=False, indent=2)
 
     def get_project_summary(project_id: str) -> str:
@@ -69,36 +94,36 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
         quality = manifest.get("quality", {})
         mapping_q = manifest.get("mapping_quality", {})
         layers = manifest.get("layers", [])
-        groups = manifest.get("groups", {})
         attachments = manifest.get("attachments_summary", {})
 
         # Группируем слои по группам для краткой сводки
-        groups_summary = {}
+        groups_summary: dict[str, int] = {}
         for layer in layers:
             group = layer.get("group", "— без группы —")
-            groups_summary.setdefault(group, [])
-            groups_summary[group].append(layer.get("display_name", layer["layer_id"]))
+            groups_summary[group] = groups_summary.get(group, 0) + 1
+
+        # Компактный объект карты: только имя и bbox
+        map_raw = proj.get("map", {})
+        ext = map_raw.get("extent_wgs84", {})
+        map_info: dict = {"name": map_raw.get("name")}
+        if ext:
+            map_info["extent_wgs84"] = [
+                ext.get("min_lon"), ext.get("min_lat"),
+                ext.get("max_lon"), ext.get("max_lat"),
+            ]
 
         result = {
             "project_id": project_id,
             "name": proj.get("name"),
-            "map": proj.get("map", {}),
+            "map": map_info,
             "layers_total": quality.get("layers_total", len(layers)),
             "layers_non_empty": quality.get("layers_non_empty"),
             "mapping_coverage": f"{mapping_q.get('coverage_percent', 0)}%",
-            "mapping_breakdown": {
-                "from_aprx":     mapping_q.get("mapped_from_aprx", 0),
-                "from_dict":     mapping_q.get("mapped_from_dict", 0),
-                "from_inferred": mapping_q.get("mapped_from_inferred", 0),
-                "needs_review":  mapping_q.get("needs_review", 0),
-            },
-            "groups": {g: len(names) for g, names in groups_summary.items()},
-            "has_attachments": attachments.get("total", 0) > 0,
+            "groups": groups_summary,
             "attachments_count": attachments.get("total", 0),
             "crs": quality.get("primary_crs"),
             "has_3d_layers": quality.get("has_3d_layers", False),
             "metadata_completeness": quality.get("metadata_completeness"),
-            "status": f"✓ Проект '{project_id}' выбран как текущий",
         }
 
         if quality.get("warnings"):
@@ -187,7 +212,6 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
                     ungrouped.append(line)
             lines = [
                 f"project={pid}  layers={len(result_layers)}",
-                "hint: describe_layer(layer=...) для деталей",
             ]
             for grp, entries in by_group.items():
                 lines.append(f"\n[{grp}]")
@@ -247,44 +271,37 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
 
         units = layer_entry.get("units")
 
-        # Форматируем поля с учётом единиц
-        fields_formatted = []
+        # Компактный формат полей: одна строка на поле
         fields_source = (profile or layer_entry).get("fields", [])
-        for f in fields_source:
-            field_info: dict = {
-                "name": f["name"],
-                "type": f.get("dtype", ""),
-            }
-            if f.get("alias"):
-                field_info["alias"] = f["alias"]
-            if f.get("nulls"):
-                field_info["nulls"] = f["nulls"]
-            # Числовая статистика с единицами
-            if f.get("min") is not None:
-                suffix = f" {units}" if units else ""
-                field_info["range"] = f"{f['min']:.4g} … {f['max']:.4g}{suffix}"
-                if f.get("mean") is not None:
-                    field_info["mean"] = f"{f['mean']:.4g}{suffix}"
-            # Категориальная статистика
-            if f.get("unique_count") is not None:
-                field_info["unique_values"] = f["unique_count"]
-            if f.get("top_values"):
-                field_info["top_values"] = f["top_values"]
-            fields_formatted.append(field_info)
+        fields_formatted = [_fmt_field(f, units) for f in fields_source]
+
+        # extent_wgs84 как массив вместо словаря
+        ext = layer_entry.get("extent_wgs84") or {}
+        extent_arr = (
+            [ext.get("min_lon"), ext.get("min_lat"), ext.get("max_lon"), ext.get("max_lat")]
+            if ext else None
+        )
 
         result: dict = {
             "layer_id": layer_id,
             "display_name": layer_entry.get("display_name", layer_id),
-            "display_name_source": layer_entry.get("display_name_source"),
             "group": layer_entry.get("group"),
-            "feature_dataset": layer_entry.get("feature_dataset"),
             "geometry_type": layer_entry.get("geometry_type"),
             "feature_count": layer_entry.get("feature_count", 0),
             "crs_epsg": layer_entry.get("crs_epsg"),
-            "extent_wgs84": layer_entry.get("extent_wgs84"),
+            "extent_wgs84": extent_arr,
             "units": units,
             "fields": fields_formatted,
         }
+
+        # display_name_source только если не стандартный источник
+        src = layer_entry.get("display_name_source")
+        if src and src != "aprx":
+            result["display_name_source"] = src
+
+        # feature_dataset только если задан
+        if layer_entry.get("feature_dataset"):
+            result["feature_dataset"] = layer_entry["feature_dataset"]
 
         if layer_entry.get("needs_review"):
             result["warning"] = (
