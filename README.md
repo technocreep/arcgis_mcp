@@ -1,5 +1,7 @@
 # ArcGIS MCP Server
 
+[🇬🇧 English](README_eng.md)
+
 Сервер реализует протокол [Model Context Protocol (MCP)](https://modelcontextprotocol.io) поверх геопространственных данных из ArcGIS File Geodatabase (`.gdb`) с опциональными метаданными из ArcGIS Pro проекта (`.aprx`). LLM-агент подключается к серверу и получает набор инструментов для поиска, анализа и визуализации геологических, геофизических и картографических данных.
 
 **Технологический стек:** Python 3.12, FastAPI, GeoPandas, Fiona, Matplotlib, Folium, Neo4j, MinIO (S3).
