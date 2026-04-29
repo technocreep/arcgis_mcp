@@ -604,7 +604,7 @@ createApp({
                 model_type: dcForm.value.model_type,
                 splits: dcForm.value.splits,
                 group_block_m: dcForm.value.group_block_m,
-                ore_layer: dcForm.value.ore_layer || null,
+                ore_layer: dcForm.value.ore_layer || undefined,
                 rs_enabled: dcForm.value.rs_enabled,
                 rs_reuse_existing: dcForm.value.rs_reuse_existing,
                 fault_radius_m: dcForm.value.fault_radius_m,
@@ -683,7 +683,7 @@ createApp({
             const f = dcForm.value
             const payload = {
                 project_id: projectId,
-                ore_layer: f.ore_layer || null,
+                ore_layer: f.ore_layer || undefined,
                 model_type: f.model_type, splits: f.splits, group_block_m: f.group_block_m,
                 pad: f.pad, fault_radius_m: f.fault_radius_m, contact_radius_m: f.contact_radius_m,
                 top_fault_classes: f.top_fault_classes,
@@ -702,7 +702,11 @@ createApp({
                 })
                 if (!res.ok) {
                     const err = await res.json().catch(() => ({}))
-                    throw new Error(err.detail || 'Failed to start report job')
+                    const detail = err.detail
+                    const msg = Array.isArray(detail)
+                        ? detail.map(e => `${e.loc?.join('.')}: ${e.msg}`).join('; ')
+                        : (typeof detail === 'string' ? detail : JSON.stringify(detail))
+                    throw new Error(msg || 'Failed to start report job')
                 }
                 const data = await res.json()
                 reportJobId.value = data.job_id
