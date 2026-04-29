@@ -21,6 +21,11 @@ const state = {
     v1Rects: [],           // canvas hit-test rects [{id, x, y, w, h}]
     v1SelectedId: null,
     v1View: { scale: 1, panX: 0, panY: 0 },  // zoom/pan transform
+    // Report mode
+    isReportMode: false,
+    selectedScenario: null,
+    availableScenarios: [],
+    scenarioIndex: [],
 }
 
 const charts = {}
@@ -55,7 +60,12 @@ function parseCSV(text) {
 }
 
 function fileUrl(path) {
-    return `/api/projects/${state.projectId}/datacube/files/${path}`
+    const base = `/api/projects/${state.projectId}/datacube/files/`
+    // In report mode, prefix scenario-level artifacts; report_dataset/ paths pass through as-is
+    if (state.isReportMode && state.selectedScenario && !path.startsWith('report_dataset/')) {
+        return base + `report_dataset/scenarios/${state.selectedScenario}/output/${path}`
+    }
+    return base + path
 }
 
 function authHeader() {
@@ -114,13 +124,42 @@ function showNA(bodyId, msg) { setBody(bodyId, `<div class="na-msg">${msg || 'Da
 function destroyChart(key) { if (charts[key]) { charts[key].destroy(); delete charts[key] } }
 
 // ─── Data loading ─────────────────────────────────────────────────────────────
-async function loadAll() {
-    // Get file list first
-    try {
-        const r = await fetch(`/api/projects/${state.projectId}/datacube`, authOpts())
-        if (r.ok) { const d = await r.json(); state.files = new Set(d.files || []) }
-    } catch {}
 
+// Detect report mode and load scenario index. Must run before fileUrl() is used for artifacts.
+async function loadReportMeta() {
+    const reportManifest = await fetchJSON('report_dataset/report_manifest.json')
+    if (!reportManifest || (!reportManifest.scenarios && !reportManifest.scenario_count)) return
+
+    state.isReportMode = true
+
+    // Load scenario index CSV
+    const scenarioIndexTxt = await fetchText('report_dataset/scenario_index.csv')
+    state.scenarioIndex = parseCSV(scenarioIndexTxt || '')
+
+    if (state.scenarioIndex.length) {
+        const cols = Object.keys(state.scenarioIndex[0])
+        const idCol = cols.find(k => k === 'scenario_id' || k === 'id') || cols[0]
+        state.availableScenarios = state.scenarioIndex.map(r => String(r[idCol])).filter(Boolean)
+
+        // Pick best by PR-AUC, fallback to balanced_reference, then first
+        const aucCol = cols.find(k => k.toLowerCase().includes('pr_auc') || k.toLowerCase() === 'prauc')
+        if (aucCol) {
+            const best = state.scenarioIndex.reduce((a, b) =>
+                (parseFloat(b[aucCol]) || 0) > (parseFloat(a[aucCol]) || 0) ? b : a)
+            state.selectedScenario = String(best[idCol])
+        } else {
+            state.selectedScenario = state.availableScenarios.includes('balanced_reference')
+                ? 'balanced_reference' : state.availableScenarios[0]
+        }
+    } else if (reportManifest.scenarios) {
+        state.availableScenarios = Object.keys(reportManifest.scenarios)
+        state.selectedScenario = state.availableScenarios.includes('balanced_reference')
+            ? 'balanced_reference' : state.availableScenarios[0]
+    }
+}
+
+// Load per-scenario artifacts (uses fileUrl which applies scenario prefix in report mode)
+async function loadArtifacts() {
     const [
         blocksTxt, scoresTxt, evalRep, modelMeta, runMeta,
         importTxt, aleTxt, shapTxt, driverTxt, geoShapTxt,
@@ -153,10 +192,12 @@ async function loadAll() {
     state.shapGeoUnit = parseCSV(geoShapTxt)
 
     // Score map from scores.csv
+    state.scoreMap = new Map()
     const scores = parseCSV(scoresTxt)
     scores.forEach(s => state.scoreMap.set(String(s['block_id'] ?? s[Object.keys(s)[0]]), s['score'] ?? s[Object.keys(s)[1]]))
 
     // Driver map
+    state.driverMap = new Map()
     state.dominantDriver.forEach(d => {
         const keys = Object.keys(d)
         const idCol = keys.find(k => k === 'block_id') || keys[0]
@@ -165,6 +206,57 @@ async function loadAll() {
                     || keys[1]
         state.driverMap.set(String(d[idCol]), d[grpCol])
     })
+}
+
+async function loadAll() {
+    // Get file list first
+    try {
+        const r = await fetch(`/api/projects/${state.projectId}/datacube`, authOpts())
+        if (r.ok) { const d = await r.json(); state.files = new Set(d.files || []) }
+    } catch {}
+
+    // Detect report mode (sets state.isReportMode / selectedScenario / availableScenarios)
+    await loadReportMeta()
+
+    // Load per-scenario (or single-mode) artifacts
+    await loadArtifacts()
+}
+
+// ─── Report mode: scenario switching ─────────────────────────────────────────
+async function switchScenario(id) {
+    if (id === state.selectedScenario) return
+    state.selectedScenario = id
+    // Reset canvas / chart state
+    state.v1Rects = []; state.v1SelectedId = null
+    state.v1View = { scale: 1, panX: 0, panY: 0 }
+    Object.keys(charts).forEach(k => { if (charts[k]) { charts[k].destroy(); delete charts[k] } })
+
+    renderScenarioSelector()
+    await loadArtifacts()
+    renderV0(); renderV3(); renderV9(); renderV1()
+    renderV2(); renderV4(); renderV5(); renderV6()
+    renderV8(); renderV10(); renderV11(); renderV12()
+}
+
+function renderScenarioSelector() {
+    const container = document.getElementById('scenario-selector')
+    if (!container) return
+    if (!state.isReportMode || !state.availableScenarios.length) {
+        container.style.display = 'none'
+        return
+    }
+    container.style.display = 'flex'
+    container.innerHTML = `
+        <span style="font-size:11px;color:#64748b;align-self:center;margin-right:6px">Scenario:</span>
+        ${state.availableScenarios.map(sid => {
+            const active = sid === state.selectedScenario
+            return `<button onclick="switchScenario('${sid}')" style="
+                padding:3px 10px;border-radius:6px;font-size:11px;font-weight:${active ? 700 : 500};
+                cursor:pointer;border:1px solid ${active ? '#059669' : '#cbd5e1'};
+                background:${active ? '#ecfdf5' : '#f8fafc'};color:${active ? '#059669' : '#64748b'};
+                transition:all 0.15s">${sid}</button>`
+        }).join('')}
+    `
 }
 
 // ─── Canvas choropleth ────────────────────────────────────────────────────────
@@ -796,6 +888,46 @@ function renderV10() {
     ctx.textAlign = 'right';  ctx.fillText(`+${absMax.toFixed(2)}`, LEFT+SW, TOP+geos.length*CELL_H+38)
 }
 
+// ─── V12: Scenario Comparison Table ──────────────────────────────────────────
+function renderV12() {
+    const container = document.getElementById('v12-body')
+    if (!container) return
+    if (!state.isReportMode) { container.innerHTML = '<div class="na-msg">Single-run mode — no scenario comparison</div>'; return }
+    if (!state.scenarioIndex.length) { container.innerHTML = '<div class="na-msg">scenario_index.csv not found</div>'; return }
+
+    const rows = state.scenarioIndex
+    const cols = Object.keys(rows[0])
+    const idCol = cols.find(k => k === 'scenario_id' || k === 'id') || cols[0]
+
+    const fmtVal = (v) => {
+        if (v == null) return '—'
+        if (typeof v === 'number') return Number.isInteger(v) ? String(v) : v.toFixed(4)
+        return String(v)
+    }
+
+    const thead = `<tr style="background:#f1f5f9">${cols.map(c =>
+        `<th style="padding:6px 10px;font-size:11px;color:#64748b;font-weight:600;text-align:left;border-bottom:2px solid #e2e8f0;white-space:nowrap">${c}</th>`
+    ).join('')}</tr>`
+
+    const tbody = rows.map(row => {
+        const sid = String(row[idCol])
+        const isActive = sid === state.selectedScenario
+        return `<tr onclick="switchScenario('${sid}')" style="cursor:pointer;background:${isActive ? '#ecfdf5' : 'transparent'};transition:background 0.1s" onmouseover="this.style.background='${isActive ? '#d1fae5' : '#f8fafc'}'" onmouseout="this.style.background='${isActive ? '#ecfdf5' : 'transparent'}'">
+            ${cols.map((c, ci) => {
+                const isId = c === idCol
+                return `<td style="padding:5px 10px;font-size:12px;color:${isActive && ci === 0 ? '#059669' : '#334155'};font-weight:${isActive && isId ? 700 : 400};border-bottom:1px solid #f1f5f9;white-space:nowrap">
+                    ${isActive && isId ? '&#10003; ' : ''}${fmtVal(row[c])}</td>`
+            }).join('')}
+        </tr>`
+    }).join('')
+
+    container.innerHTML = `
+        <div style="overflow-x:auto">
+            <table style="width:100%;border-collapse:collapse"><thead>${thead}</thead><tbody>${tbody}</tbody></table>
+        </div>
+        <p style="font-size:11px;color:#94a3b8;margin-top:8px">Click a row to switch the viewer to that scenario. Active scenario is highlighted.</p>`
+}
+
 // ─── V11: Dashboard Navigator ────────────────────────────────────────────────
 function renderV11() {
     // RS badge
@@ -853,7 +985,14 @@ function renderV11() {
            <div class="config-strip">${pills.map(p => `<span class="config-pill">${p}</span>`).join('')}</div>`
         : ''
 
-    setBody('v11', cardsHtml + configHtml)
+    const scenarioBadge = state.isReportMode && state.selectedScenario
+        ? `<div style="margin-bottom:10px;display:flex;align-items:center;gap:8px">
+               <span style="font-size:11px;color:#64748b">Active scenario:</span>
+               <span style="background:#ecfdf5;color:#059669;border:1px solid #a7f3d0;border-radius:5px;padding:2px 10px;font-size:12px;font-weight:700">${state.selectedScenario}</span>
+           </div>`
+        : ''
+
+    setBody('v11', scenarioBadge + cardsHtml + configHtml)
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
@@ -876,6 +1015,8 @@ async function main() {
 
     await loadAll()
 
+    renderScenarioSelector()
+    renderV12()
     renderV0()
     renderV3()
     renderV9()

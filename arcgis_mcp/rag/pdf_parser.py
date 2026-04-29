@@ -213,9 +213,23 @@ def _parse_vision(pdf_bytes: bytes) -> InvestigationCardData | None:
             usage.prompt_tokens, usage.completion_tokens,
         )
 
-    raw = resp.choices[0].message.content or ""
-    logger.debug("Vision-парсер raw ответ: %s", raw[:500])
-    # Убрать markdown code fences если LLM всё-таки добавил
+    msg = resp.choices[0].message
+    raw = msg.content or ""
+    reasoning = getattr(msg, "reasoning_content", None) or getattr(msg, "reasoning", None)
+    logger.debug(
+        "Vision-парсер raw: content=%r | reasoning=%r",
+        raw[:200], (reasoning or "")[:200],
+    )
+    # Thinking-модели (Qwen3, DeepSeek-R1 и др.): ответ в reasoning при content=None
+    if not raw and reasoning:
+        logger.info("content=None, извлекаем JSON из reasoning")
+        raw = reasoning
+    # Убрать <think>...</think> блоки (некоторые серверы встраивают в content)
+    raw = re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL).strip()
+    if "</think>" in raw:
+        raw = raw.split("</think>")[-1].strip()
+    logger.debug("Vision-парсер после strip: %s", raw[:500])
+    # Убрать markdown code fences если LLM добавил
     raw = re.sub(r"```(?:json)?\s*", "", raw).strip("`").strip()
 
     try:

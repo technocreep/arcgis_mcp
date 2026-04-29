@@ -90,7 +90,13 @@ query_features_fn, summarize_layer_fn = _qry
 (plot_histogram_fn,) = make_plot_histogram_tools(store, _state)
 (plot_interactive_fn,) = make_plot_interactive_tools(store, _state)
 
-datacube_overview_fn, datacube_block_scores_fn, datacube_block_detail_fn = make_datacube_tools(store, _state)
+(
+    datacube_overview_fn,
+    datacube_block_scores_fn,
+    datacube_block_detail_fn,
+    datacube_report_overview_fn,
+    datacube_score_overlay_fn,
+) = make_datacube_tools(store, _state)
 
 (geo_context_query_fn,) = make_kg_query_tools(_state)
 (lookup_work_types_fn,) = make_lookup_tools(_state)
@@ -585,6 +591,11 @@ async def plot_interactive(req: PlotInteractiveRequest):
 
 class DatacubeOverviewRequest(BaseModel):
     project_id: Optional[str] = Field(None, description="ID проекта (необязательно, если уже выбран)")
+    scenario_id: Optional[str] = Field(
+        None,
+        description="ID сценария в report mode (regional_fast, balanced_reference, detailed_skeptical). "
+                    "Если None — выбирается лучший по PR-AUC.",
+    )
 
 
 @app.post(
@@ -594,16 +605,21 @@ class DatacubeOverviewRequest(BaseModel):
     tags=["datacube"],
 )
 async def datacube_overview(req: DatacubeOverviewRequest):
-    """Первый вызов при работе с Data Cube. Проверяет наличие артефактов в MinIO,
-    возвращает метрики модели (pr_auc, cv), распределение скоров блоков, топ-3 фичи по важности
-    и доминирующие группы драйверов. Подсказывает следующий шаг."""
-    return _parse(datacube_overview_fn(req.project_id))
+    """Первый вызов при работе с Data Cube. Возвращает метрики модели (pr_auc, cv),
+    распределение скоров блоков, топ-3 фичи по важности.
+    В report mode укажи scenario_id; если None — выбирается лучший по PR-AUC.
+    Используй datacube_report_overview() для списка доступных сценариев."""
+    return _parse(datacube_overview_fn(req.project_id, req.scenario_id))
 
 
 class DatacubeBlockScoresRequest(BaseModel):
     project_id: Optional[str] = Field(None, description="ID проекта (необязательно, если уже выбран)")
     top_n: int = Field(20, ge=1, le=200, description="Сколько блоков вернуть (по умолчанию 20)")
     min_score: Optional[float] = Field(None, ge=0.0, le=1.0, description="Минимальный порог score")
+    scenario_id: Optional[str] = Field(
+        None,
+        description="ID сценария в report mode. Если None — лучший по PR-AUC.",
+    )
 
 
 @app.post(
@@ -614,13 +630,18 @@ class DatacubeBlockScoresRequest(BaseModel):
 )
 async def datacube_block_scores(req: DatacubeBlockScoresRequest):
     """Возвращает отсортированный список блоков: rank, block_id, score, lon/lat, dominant_driver_group.
-    Используй после datacube_overview() для выбора интересных блоков."""
-    return _parse(datacube_block_scores_fn(req.project_id, req.top_n, req.min_score))
+    Используй после datacube_overview() для выбора интересных блоков.
+    В report mode укажи scenario_id."""
+    return _parse(datacube_block_scores_fn(req.project_id, req.top_n, req.min_score, req.scenario_id))
 
 
 class DatacubeBlockDetailRequest(BaseModel):
     block_id: str = Field(..., description="ID блока из datacube_block_scores(), например 'block_2_0'")
     project_id: Optional[str] = Field(None, description="ID проекта (необязательно, если уже выбран)")
+    scenario_id: Optional[str] = Field(
+        None,
+        description="ID сценария в report mode. Если None — лучший по PR-AUC.",
+    )
 
 
 @app.post(
@@ -631,8 +652,94 @@ class DatacubeBlockDetailRequest(BaseModel):
 )
 async def datacube_block_detail(req: DatacubeBlockDetailRequest):
     """Детальная информация по одному блоку: геолокация, score и ранг, значения всех фич,
-    SHAP-значения (отсортированы по |значению|), доминирующий драйвер и его группа."""
-    return _parse(datacube_block_detail_fn(req.block_id, req.project_id))
+    SHAP-значения (отсортированы по |значению|), доминирующий драйвер и его группа.
+    В report mode укажи scenario_id."""
+    return _parse(datacube_block_detail_fn(req.block_id, req.project_id, req.scenario_id))
+
+
+class DatacubeReportOverviewRequest(BaseModel):
+    project_id: Optional[str] = Field(None, description="ID проекта (необязательно, если уже выбран)")
+
+
+@app.post(
+    "/datacube_report_overview",
+    operation_id="datacube_report_overview",
+    summary="Обзор мультисценарного отчёта Data Cube: список сценариев, PR-AUC, доступные профили",
+    tags=["datacube"],
+)
+async def datacube_report_overview(req: DatacubeReportOverviewRequest):
+    """Обзор мультисценарного отчёта Data Cube.
+
+    Возвращает список сценариев с метриками (PR-AUC, x*), лучший сценарий,
+    доступные label_profile_id (профили руды) и model_profile_id (наборы фичей),
+    число готовых артефактов визуализации.
+
+    Вызывай перед datacube_score_overlay() чтобы узнать доступные параметры.
+    Требует предварительного запуска мультисценарного пайплайна через UI.
+    """
+    return _parse(datacube_report_overview_fn(req.project_id))
+
+
+class DatacubeScoreOverlayRequest(BaseModel):
+    project_id: Optional[str] = Field(None, description="ID проекта (необязательно, если уже выбран)")
+    scenario_id: Optional[str] = Field(
+        None,
+        description="ID сценария (regional_fast, balanced_reference, detailed_skeptical). "
+                    "Если None — лучший по PR-AUC.",
+    )
+    label_profile_id: Optional[str] = Field(
+        None,
+        description="ID профиля руды (например 'any_occurrence'). "
+                    "Если None — первый доступный. Узнай из datacube_report_overview().",
+    )
+    model_profile_id: Optional[str] = Field(
+        None,
+        description="Набор фичей модели: datacube_only | rs_only | combined. По умолчанию combined.",
+    )
+    quantile: str = Field(
+        "q90",
+        description="Порог проспективности: q90 | q95 | q99. "
+                    "q90 = топ 10% блоков по score. По умолчанию q90.",
+    )
+    visualization_type: str = Field(
+        "mask",
+        description="mask — маска высоких скоров; contour — контурное сужение.",
+    )
+    layer_names: Optional[str] = Field(
+        None,
+        description='JSON-массив ID слоёв ГИС для наложения на карту. '
+                    'Пример: \'["DrudP_R_42","fault_layer"]\'. '
+                    'Если None — только блоки + контур лицензии.',
+    )
+
+
+@app.post(
+    "/datacube_score_overlay",
+    operation_id="datacube_score_overlay",
+    summary="Карта проспективности Data Cube с наложением ГИС-слоёв",
+    tags=["datacube"],
+)
+async def datacube_score_overlay(req: DatacubeScoreOverlayRequest):
+    """Визуализация результатов моделирования Data Cube на карте.
+
+    Читает CSV блоков из report_visualizations/ (вычисленных report_visualization_runner.py),
+    строит изображение с цветовой шкалой score и накладывает ГИС-слои из проекта.
+    Возвращает markdown с встроенной картой и URL изображения в MinIO.
+
+    Перед вызовом: datacube_report_overview() → узнать scenario_id, label_profile_id, model_profile_id.
+    Агент не должен использовать готовые PNG из report_visualizations — только этот инструмент.
+    """
+    return _parse(
+        datacube_score_overlay_fn(
+            req.project_id,
+            req.scenario_id,
+            req.label_profile_id,
+            req.model_profile_id,
+            req.quantile,
+            req.visualization_type,
+            req.layer_names,
+        )
+    )
 
 
 # ---------------------------------------------------------------------------

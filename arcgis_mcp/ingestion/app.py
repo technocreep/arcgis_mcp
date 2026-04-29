@@ -476,6 +476,40 @@ async def datacube_get_job(job_id: str):
         raise HTTPException(status_code=503, detail="Data Cube service unavailable")
 
 
+@app.get("/api/datacube/scenarios")
+async def datacube_get_scenarios():
+    """Получить список предопределённых сценариев мультисценарного отчёта."""
+    try:
+        async with httpx.AsyncClient() as client:
+            r = await client.get(f"{DATACUBE_URL}/scenarios", timeout=10)
+        return Response(content=r.content, status_code=r.status_code, media_type="application/json")
+    except httpx.ConnectError:
+        raise HTTPException(status_code=503, detail="Data Cube service unavailable")
+
+
+@app.post("/api/datacube/report-jobs")
+async def datacube_create_report_job(request: Request):
+    """Запустить мультисценарный пайплайн Data Cube для проекта."""
+    body = await request.json()
+    try:
+        async with httpx.AsyncClient() as client:
+            r = await client.post(f"{DATACUBE_URL}/report-jobs", json=body, timeout=10)
+        return Response(content=r.content, status_code=r.status_code, media_type="application/json")
+    except httpx.ConnectError:
+        raise HTTPException(status_code=503, detail="Data Cube service unavailable")
+
+
+@app.get("/api/datacube/report-jobs/{job_id}")
+async def datacube_get_report_job(job_id: str):
+    """Получить статус мультисценарной задачи Data Cube."""
+    try:
+        async with httpx.AsyncClient() as client:
+            r = await client.get(f"{DATACUBE_URL}/report-jobs/{job_id}", timeout=10)
+        return Response(content=r.content, status_code=r.status_code, media_type="application/json")
+    except httpx.ConnectError:
+        raise HTTPException(status_code=503, detail="Data Cube service unavailable")
+
+
 # ---------------------------------------------------------------------------
 # Data Cube — артефакты (файлы результатов пайплайна)
 # ---------------------------------------------------------------------------
@@ -483,6 +517,9 @@ async def datacube_get_job(job_id: str):
 def _find_dc_dir(project_path: Path) -> Path | None:
     """Найти директорию с артефактами Data Cube (datacube/ или корень проекта)."""
     dc_sub = project_path / "datacube"
+    # Multi-scenario report mode: report_manifest.json is the indicator
+    if (dc_sub / "report_dataset" / "report_manifest.json").exists():
+        return dc_sub
     for indicator in ("scores.csv", "blocks.csv"):
         if (dc_sub / indicator).exists():
             return dc_sub
@@ -502,8 +539,9 @@ async def datacube_artifacts_status(project_id: str, _: str = Depends(require_au
     if dc_dir is None:
         return {"exists": False}
 
+    has_report = (dc_dir / "report_dataset" / "report_manifest.json").exists()
     files = [f.relative_to(dc_dir).as_posix() for f in dc_dir.rglob("*") if f.is_file()]
-    return {"exists": True, "files": sorted(files)}
+    return {"exists": True, "has_report_dataset": has_report, "files": sorted(files)}
 
 
 _DASHBOARD_HEAD_INJECT = (

@@ -27,9 +27,21 @@
             <h1 class="text-sm font-bold text-slate-900 leading-tight">Data Cube Viewer</h1>
             <p class="text-xs text-slate-400">Project: <span id="project-id" class="text-emerald-600 font-mono font-semibold"></span></p>
         </div>
+        <div id="scenario-selector" style="display:none;flex-wrap:wrap;gap:4px;margin-left:auto;align-items:center"></div>
     </header>
 
     <main class="max-w-screen-xl mx-auto px-4 py-6 space-y-6">
+
+        <!-- ── V12: Scenario Comparison (report mode only) ── -->
+        <div class="block-card" id="v12-section">
+            <div class="block-header">
+                <span class="block-num">V12</span> Scenario Comparison
+                <span class="header-hint">report mode · click row to switch</span>
+            </div>
+            <div id="v12-body" class="block-body">
+                <div class="loading">Loading…</div>
+            </div>
+        </div>
 
         <!-- ── V11: Dashboard Navigator ── -->
         <div class="block-card">
@@ -172,6 +184,6 @@
     </main>
 </div>
 
-<script src="/ui/datacube/viewer.js?v=3"></script>
+<script src="/ui/datacube/viewer.js?v=4"></script>
 </body>
 </html>

@@ -424,6 +424,18 @@ createApp({
         // Which project currently has a running/just-finished job (survives modal close)
         const activeJobProjectId = ref(null)
 
+        // Report mode (multi-scenario)
+        const dcMode = ref('report')              // 'report' | 'single'
+        const reportScenarios = ref([])           // predefined scenario list from API
+        const reportJobId = ref(null)
+        const reportJobStatus = ref(null)         // null | 'pending' | 'running' | 'done' | 'failed'
+        const reportScenarioStatuses = ref({})    // {scenario_id: 'pending|running|done|failed'}
+        const reportCurrentScenario = ref(null)
+        const reportPollTimer = ref(null)
+        const reportSummaryRows = ref([])
+        const reportError = ref(null)
+        const activeJobIsReport = ref(false)
+
         // Elapsed time timer
         const dcElapsed = ref(0)
         const _dcTimer = { id: null }  // non-reactive, plain object
@@ -498,21 +510,48 @@ createApp({
             dataCubeStage.value ? (DC_STAGE_LABELS_LONG[dataCubeStage.value] || dataCubeStage.value) : ''
         )
 
+        const loadScenarios = async () => {
+            try {
+                const res = await fetch('/api/datacube/scenarios')
+                if (res.ok) reportScenarios.value = await res.json()
+            } catch { /* ignore */ }
+        }
+
+        const reportDefaultForm = () => ({
+            ore_layer: '', seed: 42,
+            model_type: 'catboost', splits: 3, group_block_m: 50000,
+            pad: 0.10, fault_radius_m: 10000, contact_radius_m: 10000, top_fault_classes: 10,
+            fault_radii_m: '', contact_radii_m: '',
+            rs_enabled: true, rs_reuse_existing: true,
+            auto_discover: true, discovery_field: '', max_auto_profiles: 6,
+            geometry_mode: 'auto', include_gis_layers: false, run_interpretability: true,
+        })
+
         const openDataCube = (project) => {
             // If this project already has an active/finished job, show its state
-            if (activeJobProjectId.value === project.id && dataCubeStatus.value !== null) {
+            const hasActiveReport = activeJobProjectId.value === project.id && reportJobStatus.value !== null
+            const hasActiveSingle = activeJobProjectId.value === project.id && dataCubeStatus.value !== null
+            if (hasActiveReport || hasActiveSingle) {
                 dataCubeProject.value = project
                 showDataCubeModal.value = true
                 return
             }
-            // Fresh open — show form
+            // Fresh open — reset & show form
             dataCubeProject.value = project
             dataCubeStatus.value = null
+            reportJobStatus.value = null
             dataCubeStage.value = null
             dataCubeError.value = null
+            reportError.value = null
+            reportCurrentScenario.value = null
+            reportScenarioStatuses.value = {}
+            reportSummaryRows.value = []
+            reportJobId.value = null
+            activeJobIsReport.value = false
             dcForm.value = dcDefaultForm()
             dcSelectedPreset.value = ''
             showDataCubeModal.value = true
+            loadScenarios()
         }
 
         // Closing modal does NOT stop the job — polling continues in background
@@ -523,11 +562,19 @@ createApp({
         // Force-reset when user wants to start a new job on same project
         const resetDataCube = () => {
             if (dcPollInterval.value) { clearInterval(dcPollInterval.value); dcPollInterval.value = null }
+            if (reportPollTimer.value) { clearInterval(reportPollTimer.value); reportPollTimer.value = null }
             _stopTimer()
             activeJobProjectId.value = null
+            activeJobIsReport.value = false
             dataCubeStatus.value = null
+            reportJobStatus.value = null
             dataCubeStage.value = null
             dataCubeError.value = null
+            reportError.value = null
+            reportCurrentScenario.value = null
+            reportScenarioStatuses.value = {}
+            reportSummaryRows.value = []
+            reportJobId.value = null
             dcElapsed.value = 0
         }
 
@@ -617,9 +664,119 @@ createApp({
             window.open(`/ui/datacube/?project_id=${projectId}`, '_blank')
         }
 
+        // Report job submission
+        const submitReportJob = async () => {
+            const projectId = dataCubeProject.value.id
+            reportJobStatus.value = 'pending'
+            reportError.value = null
+            reportCurrentScenario.value = null
+            reportScenarioStatuses.value = {}
+            reportSummaryRows.value = []
+            activeJobProjectId.value = projectId
+            activeJobIsReport.value = true
+            dcElapsed.value = 0
+            _startTimer()
+
+            const f = dcForm.value
+            const payload = {
+                project_id: projectId,
+                ore_layer: f.ore_layer || null,
+                model_type: f.model_type, splits: f.splits, group_block_m: f.group_block_m,
+                pad: f.pad, fault_radius_m: f.fault_radius_m, contact_radius_m: f.contact_radius_m,
+                top_fault_classes: f.top_fault_classes,
+                fault_radii_m: parseRadii(f.fault_radii_m), contact_radii_m: parseRadii(f.contact_radii_m),
+                rs_enabled: f.rs_enabled, rs_reuse_existing: f.rs_reuse_existing, seed: f.seed,
+                auto_discover: f.auto_discover, discovery_field: f.discovery_field || null,
+                max_auto_profiles: f.max_auto_profiles,
+                geometry_mode: f.geometry_mode, include_gis_layers: f.include_gis_layers,
+                run_interpretability: f.run_interpretability,
+            }
+            try {
+                const res = await fetch('/api/datacube/report-jobs', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                })
+                if (!res.ok) {
+                    const err = await res.json().catch(() => ({}))
+                    throw new Error(err.detail || 'Failed to start report job')
+                }
+                const data = await res.json()
+                reportJobId.value = data.job_id
+                reportJobStatus.value = 'running'
+                reportPollTimer.value = setInterval(() => pollReportJob(projectId, data.job_id), 3000)
+            } catch (e) {
+                reportJobStatus.value = 'failed'
+                reportError.value = e.message
+                _stopTimer()
+            }
+        }
+
+        const pollReportJob = async (projectId, jobId) => {
+            try {
+                const res = await fetch(`/api/datacube/report-jobs/${jobId}`)
+                if (!res.ok) return
+                const data = await res.json()
+                reportJobStatus.value = data.status
+                reportCurrentScenario.value = data.current_scenario
+                reportScenarioStatuses.value = { ...data.scenario_statuses }
+                if (data.status === 'done' || data.status === 'failed') {
+                    reportError.value = data.error || null
+                    clearInterval(reportPollTimer.value)
+                    reportPollTimer.value = null
+                    _stopTimer()
+                    if (data.status === 'done') {
+                        checkDatacubeStatus(projectId)
+                        loadReportSummary(projectId)
+                        addToast('Report pipeline completed.', 'success')
+                    } else {
+                        addToast('Report pipeline failed.', 'error')
+                    }
+                }
+            } catch { /* ignore transient errors */ }
+        }
+
+        const loadReportSummary = async (projectId) => {
+            try {
+                const opts = authHeader.value ? { headers: { Authorization: authHeader.value } } : {}
+                const r = await fetch(
+                    `/api/projects/${projectId}/datacube/files/report_dataset/scenario_index.csv`,
+                    opts,
+                )
+                if (!r.ok) return
+                const text = await r.text()
+                const lines = text.trim().split(/\r?\n/)
+                if (lines.length < 2) return
+                const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''))
+                reportSummaryRows.value = lines.slice(1).filter(l => l.trim()).map(line => {
+                    const vals = line.split(',')
+                    const row = {}
+                    headers.forEach((h, i) => {
+                        const v = (vals[i] || '').trim().replace(/^"|"$/g, '')
+                        row[h] = (v === '' || v === 'nan' || v === 'NaN') ? null : (isNaN(v) ? v : parseFloat(v))
+                    })
+                    return row
+                })
+            } catch { /* ignore */ }
+        }
+
+        // Running label shown on project card
+        const runningStatusLabel = computed(() => {
+            if (activeJobIsReport.value) {
+                if (reportCurrentScenario.value === 'visualizations') return 'Building visualizations'
+                if (reportCurrentScenario.value === 'upload') return 'Uploading artifacts'
+                if (reportCurrentScenario.value) return `Scenario: ${reportCurrentScenario.value}`
+                return 'Starting report…'
+            }
+            return DC_STAGE_LABELS_LONG[dataCubeStage.value] || 'Computing…'
+        })
+
         // Project card computed helpers
         const isJobRunning = (projectId) =>
-            activeJobProjectId.value === projectId && dataCubeStatus.value === 'running'
+            activeJobProjectId.value === projectId && (
+                dataCubeStatus.value === 'running' ||
+                (reportJobStatus.value !== null && reportJobStatus.value !== 'done' && reportJobStatus.value !== 'failed')
+            )
 
         const cubeReady = (projectId) =>
             projectsCube.value[projectId] && !isJobRunning(projectId)
@@ -697,17 +854,24 @@ createApp({
             // observe
             showObserveModal, observeData, observeLoading, observeProject,
             treeContainer, openObserve, treeExpandAll, treeCollapseAll,
-            // data cube
+            // data cube — single job
             DC_STAGES, DC_STAGE_LABELS, DC_STAGE_LABELS_LONG,
             showDataCubeModal, dataCubeProject,
             dataCubeStatus, dataCubeStage, dataCubeStageIndex,
             dataCubeProgress, dataCubeProgressLabel,
             dataCubeError, dcElapsed, dcElapsedLabel,
             dcForm, dcSelectedPreset, loadDcPreset,
-            activeJobProjectId,
+            activeJobProjectId, activeJobIsReport,
             openDataCube, closeDataCube, resetDataCube,
             submitDataCube, openDataCubeViewer,
             projectsCube, isJobRunning, cubeReady,
+            runningStatusLabel,
+            // data cube — report mode
+            dcMode,
+            reportScenarios, reportJobId, reportJobStatus,
+            reportScenarioStatuses, reportCurrentScenario,
+            reportSummaryRows, reportError,
+            submitReportJob,
             kgIndexing, buildKg,
         }
     }
