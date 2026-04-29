@@ -202,7 +202,7 @@ def _parse_vision(pdf_bytes: bytes) -> InvestigationCardData | None:
     resp = client.chat.completions.create(
         model=config.KG_LLM_MODEL,
         messages=[{"role": "user", "content": content}],
-        max_tokens=2000,
+        max_tokens=8192,
         temperature=0,
     )
 
