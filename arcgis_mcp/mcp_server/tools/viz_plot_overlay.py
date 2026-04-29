@@ -311,7 +311,8 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
 
         rendered_names = [r["display_name"] for r in records]
         if url:
-            result = {"markdown": f"![Карта]({url})", "layers_rendered": rendered_names}
+            result = {"markdown": f"![Карта]({url})", "layers_rendered": rendered_names,
+                      "hint_render": "Вставь значение поля markdown дословно в ответ — это готовая Markdown-ссылка на изображение."}
         else:
             result = {"file": out_path, "layers_rendered": rendered_names}
         return json.dumps(result, ensure_ascii=False, indent=2)

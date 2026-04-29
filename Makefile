@@ -16,7 +16,7 @@ help:
 # Новый коммит в Data_cube → применить без пересборки образа
 .PHONY: update-cube
 update-cube:
-	docker exec data-cube-server bash -c "cd /app/data_cube && git pull && pip install -q -e '.[catboost,gis]'"
+	git -C Data_cube pull
 	$(COMPOSE) restart data-cube
 
 # Изменился Dockerfile.datacube или нужны новые системные пакеты

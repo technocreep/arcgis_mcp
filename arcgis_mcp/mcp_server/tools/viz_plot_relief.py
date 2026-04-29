@@ -132,7 +132,8 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
         url = upload_to_minio(out_path, pid)
 
         if url:
-            result = {"markdown": f"![{display_name}]({url})", "display_name": display_name, "elevation_field": elev_col}
+            result = {"markdown": f"![{display_name}]({url})", "display_name": display_name, "elevation_field": elev_col,
+                      "hint_render": "Вставь значение поля markdown дословно в ответ — это готовая Markdown-ссылка на изображение."}
         else:
             result = {"file": out_path, "display_name": display_name, "elevation_field": elev_col}
         return json.dumps(result, ensure_ascii=False, indent=2)

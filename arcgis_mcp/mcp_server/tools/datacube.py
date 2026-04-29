@@ -226,6 +226,17 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
         imp_rows = _parse_csv(_read("interpretability/global_importance_features.csv") or "")
         drv_rows = _parse_csv(_read("interpretability/dominant_driver_group.csv") or "")
 
+        # Label profiles: what mineral types were modeled
+        label_summary_rows = _parse_csv(
+            _read_local(pid, f"{prefix}/labels/label_profile_summary.csv") or ""
+            if report_mode else ""
+        )
+        modeled_profiles = [
+            str(r.get("label_profile_id") or r.get("profile_id", ""))
+            for r in label_summary_rows
+            if r.get("label_profile_id") or r.get("profile_id")
+        ] if label_summary_rows else []
+
         ce = eval_rep.get("capture_efficiency", {})
         cv = model_meta.get("cv", {})
 
@@ -289,6 +300,7 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
         }
         result["model"] = model_info
         result["eval"] = eval_info
+        result["modeled_label_profiles"] = modeled_profiles or None
         result["score_distribution"] = score_dist
         result["top3_features_by_importance"] = top3 or None
         result["dominant_driver_groups"] = driver_counts or None
@@ -827,6 +839,7 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
         if url:
             result["markdown"] = f"![Score overlay — {sid} / {mid} / {q}]({url})"
             result["url"] = url
+            result["hint_render"] = "Вставь значение поля markdown дословно в ответ — это готовая Markdown-ссылка на изображение."
         else:
             result["local_path"] = local_path
             result["warning"] = "MinIO недоступен, изображение сохранено локально"

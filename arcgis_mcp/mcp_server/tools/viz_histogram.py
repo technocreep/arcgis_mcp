@@ -201,6 +201,7 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
                 "display_name": display_name,
                 "field": resolved_field,
                 "field_stats": stats,
+                "hint_render": "Вставь значение поля markdown дословно в ответ — это готовая Markdown-ссылка на изображение.",
             }
         else:
             result = {
