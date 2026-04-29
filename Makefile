@@ -17,8 +17,7 @@ help:
 .PHONY: update-cube
 update-cube:
 	docker exec data-cube-server bash -c "cd /app/data_cube && git pull && pip install -q -e '.[catboost,gis]'"
-	$(COMPOSE) down
-	$(COMPOSE) up -d
+	$(COMPOSE) restart data-cube
 
 # Изменился Dockerfile.datacube или нужны новые системные пакеты
 .PHONY: rebuild-cube
