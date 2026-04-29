@@ -68,6 +68,13 @@ function fileUrl(path) {
     return base + path
 }
 
+function hasFile(path) {
+    if (state.isReportMode && state.selectedScenario && !path.startsWith('report_dataset/')) {
+        return state.files.has(`report_dataset/scenarios/${state.selectedScenario}/output/${path}`)
+    }
+    return state.files.has(path)
+}
+
 function authHeader() {
     const u = localStorage.getItem('gis_auth_user')
     const p = localStorage.getItem('gis_auth_pass')
@@ -409,7 +416,7 @@ function drawChoropleth(canvasId, tooltipId, colorFn, onClickBlock, view) {
 
 // ─── V0: Interactive map (iframe) ─────────────────────────────────────────────
 async function renderV0() {
-    if (!state.files.has('viz/map.html')) { showNA('v0', 'Interactive map (viz/map.html) not found'); return }
+    if (!hasFile('viz/map.html')) { showNA('v0', 'Interactive map (viz/map.html) not found'); return }
     try {
         const r = await fetch(fileUrl('viz/map.html'), authOpts())
         if (!r.ok) { showNA('v0', 'Failed to load map'); return }
@@ -952,7 +959,7 @@ function renderV11() {
         { file: 'dashboard/metrics.html',    icon: '📈',  title: 'Eval Metrics',        desc: 'Capture curves, AUC' },
         { file: 'dashboard/artifacts.html',  icon: '🗂',  title: 'Artifacts Registry',  desc: 'Все файлы пайплайна' },
     ]
-    const available = DASH_PAGES.filter(p => state.files.has(p.file))
+    const available = DASH_PAGES.filter(p => hasFile(p.file))
 
     // Experiment config summary
     const cfg = state.experimentConfig
