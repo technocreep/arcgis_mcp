@@ -432,6 +432,7 @@ createApp({
         const reportJobStatus = ref(null)         // null | 'pending' | 'running' | 'done' | 'failed'
         const reportScenarioStatuses = ref({})    // {scenario_id: 'pending|running|done|failed'}
         const reportCurrentScenario = ref(null)
+        const reportCurrentLabelProfile = ref(null)
         const reportPollTimer = ref(null)
         const reportSummaryRows = ref([])
         const reportError = ref(null)
@@ -547,6 +548,7 @@ createApp({
             dataCubeError.value = null
             reportError.value = null
             reportCurrentScenario.value = null
+            reportCurrentLabelProfile.value = null
             reportScenarioStatuses.value = {}
             reportSummaryRows.value = []
             reportJobId.value = null
@@ -575,6 +577,7 @@ createApp({
             dataCubeError.value = null
             reportError.value = null
             reportCurrentScenario.value = null
+            reportCurrentLabelProfile.value = null
             reportScenarioStatuses.value = {}
             reportSummaryRows.value = []
             reportJobId.value = null
@@ -673,6 +676,7 @@ createApp({
             reportJobStatus.value = 'pending'
             reportError.value = null
             reportCurrentScenario.value = null
+            reportCurrentLabelProfile.value = null
             reportScenarioStatuses.value = {}
             reportSummaryRows.value = []
             activeJobProjectId.value = projectId
@@ -726,6 +730,7 @@ createApp({
                 const data = await res.json()
                 reportJobStatus.value = data.status
                 reportCurrentScenario.value = data.current_scenario
+                reportCurrentLabelProfile.value = data.current_label_profile || null
                 reportScenarioStatuses.value = { ...data.scenario_statuses }
                 if (data.status === 'done' || data.status === 'failed') {
                     reportError.value = data.error || null
@@ -772,7 +777,12 @@ createApp({
             if (activeJobIsReport.value) {
                 if (reportCurrentScenario.value === 'visualizations') return 'Building visualizations'
                 if (reportCurrentScenario.value === 'upload') return 'Uploading artifacts'
-                if (reportCurrentScenario.value) return `Scenario: ${reportCurrentScenario.value}`
+                if (reportCurrentScenario.value) {
+                    const profile = reportCurrentLabelProfile.value
+                    return profile
+                        ? `Scenario: ${reportCurrentScenario.value} — ${profile}`
+                        : `Scenario: ${reportCurrentScenario.value}`
+                }
                 return 'Starting report…'
             }
             return DC_STAGE_LABELS_LONG[dataCubeStage.value] || 'Computing…'
@@ -876,7 +886,7 @@ createApp({
             // data cube — report mode
             dcMode, scenariosLoading,
             reportScenarios, reportJobId, reportJobStatus,
-            reportScenarioStatuses, reportCurrentScenario,
+            reportScenarioStatuses, reportCurrentScenario, reportCurrentLabelProfile,
             reportSummaryRows, reportError,
             submitReportJob,
             kgIndexing, buildKg,
