@@ -64,7 +64,6 @@ services:
     container_name: data-cube-server
     volumes:
       - projects:/app/projects
-      - ./Data_cube:/app/data_cube   # hot-reload: local edits apply after restart
     env_file:
       - .env
     environment:
