@@ -660,16 +660,39 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
             f"/labels/{lid}/models/{mid}/{viz_type}_blocks_{q}.csv"
         )
         csv_txt = _read_local(pid, csv_rel)
+        used_fallback = False
         if not csv_txt:
-            return json.dumps({
-                "error": f"Visualization CSV не найден: {csv_rel}",
-                "hint": (
-                    "Убедитесь что report_visualization_runner.py был запущен. "
-                    "Используй datacube_report_overview() для списка доступных артефактов."
-                ),
-            }, ensure_ascii=False)
+            # Visualization CSV не сгенерирован — строим из сырых артефактов сценария
+            scores_rel = f"report_dataset/scenarios/{sid}/output/models/{mid}/scores.csv"
+            blocks_rel = f"report_dataset/scenarios/{sid}/output/blocks.csv"
+            scores_txt = _read_local(pid, scores_rel)
+            blocks_txt = _read_local(pid, blocks_rel)
+            if not scores_txt or not blocks_txt:
+                return json.dumps({
+                    "error": f"Visualization CSV не найден: {csv_rel}",
+                    "hint": (
+                        f"Сырые артефакты также не найдены "
+                        f"(scores: {bool(scores_txt)}, blocks: {bool(blocks_txt)}). "
+                        "Используй datacube_report_overview() для списка доступных артефактов."
+                    ),
+                }, ensure_ascii=False)
+            scores_rows = {str(r["block_id"]): float(r["score"])
+                           for r in _parse_csv(scores_txt)
+                           if r.get("block_id") is not None and r.get("score") is not None}
+            all_scores = list(scores_rows.values())
+            quantile_val = {"q90": 0.90, "q95": 0.95, "q99": 0.99}.get(q, 0.90)
+            threshold = float(np.nanquantile(all_scores, quantile_val)) if all_scores else 0.0
+            blocks_raw = _parse_csv(blocks_txt)
+            blocks = [
+                {**r, "score": scores_rows[str(r["block_id"])]}
+                for r in blocks_raw
+                if str(r.get("block_id")) in scores_rows
+                and scores_rows[str(r["block_id"])] >= threshold
+            ]
+            used_fallback = True
+        else:
+            blocks = _parse_csv(csv_txt)
 
-        blocks = _parse_csv(csv_txt)
         if not blocks:
             return json.dumps({"error": "CSV файл пуст"}, ensure_ascii=False)
 
@@ -820,6 +843,11 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
                 "max": round(max(scores), 4),
             },
         })
+        if used_fallback:
+            result["fallback"] = (
+                f"Visualization CSV не найден, использованы сырые артефакты: "
+                f"output/models/{mid}/scores.csv + output/blocks.csv"
+            )
         if warnings_out:
             result["warnings"] = warnings_out
         return json.dumps(result, ensure_ascii=False, indent=2)
