@@ -134,15 +134,27 @@ _EXTRACTION_PROMPT = """\
 def parse_investigation_card(pdf_bytes: bytes) -> InvestigationCardData | None:
     """Извлечь структурированные данные из PDF карточки изученности.
 
-    Использует vision LLM если KG_LLM_MODEL задан, иначе regex-fallback.
+    Бэкенды (PDF_PARSER_BACKEND в .env):
+      "openrouter" — anthropic/claude-haiku-4-5 через OpenRouter
+      "local"      — локальная vLLM (KG_LLM_MODEL/KG_LLM_BASE_URL), fallback на regex
     """
     try:
         import config
-        use_vision = bool(config.KG_LLM_MODEL)
+        backend = config.PDF_PARSER_BACKEND
+        use_local_vision = bool(config.KG_LLM_MODEL)
     except Exception:
-        use_vision = False
+        backend = "local"
+        use_local_vision = False
 
-    if use_vision:
+    if backend == "openrouter":
+        try:
+            return _parse_openrouter(pdf_bytes)
+        except Exception as e:
+            logger.warning("OpenRouter-парсер не справился (%s), fallback на regex", e)
+        return _parse_regex(pdf_bytes)
+
+    # backend == "local"
+    if use_local_vision:
         try:
             return _parse_vision(pdf_bytes)
         except Exception as e:
@@ -152,7 +164,111 @@ def parse_investigation_card(pdf_bytes: bytes) -> InvestigationCardData | None:
 
 
 # ---------------------------------------------------------------------------
-# Vision LLM парсер
+# Системный промпт для моделей с чистым JSON-выводом (OpenRouter / Claude)
+# ---------------------------------------------------------------------------
+
+_SYSTEM_PROMPT_STRICT = """\
+You are a document data extraction assistant. Your sole task is to extract \
+structured information from the provided document images and return it as a \
+JSON object matching the exact schema given in the user message.
+
+STRICT OUTPUT RULES — violations will break downstream processing:
+- Respond with ONLY the JSON object. Nothing else.
+- Do NOT use markdown formatting or code fences (no ```json).
+- Do NOT include any explanation, commentary, preamble, or reasoning text.
+- Your entire response must be directly parseable by json.loads().
+- Use null for any field that is absent or unreadable in the document.\
+"""
+
+# ---------------------------------------------------------------------------
+# OpenRouter парсер (anthropic/claude-haiku-4-5)
+# ---------------------------------------------------------------------------
+
+_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+_OPENROUTER_MODEL    = "anthropic/claude-haiku-4-5"
+
+
+def _parse_openrouter(pdf_bytes: bytes) -> InvestigationCardData | None:
+    """Рендерит страницы PDF в PNG и отправляет в Claude Haiku через OpenRouter."""
+    try:
+        import fitz
+    except ImportError:
+        logger.warning("pymupdf не установлен")
+        return None
+
+    import config
+    from openai import OpenAI
+
+    if not config.OPENROUTER_API_KEY:
+        raise ValueError("OPENROUTER_API_KEY не задан в .env")
+
+    # --- Рендер страниц в PNG (150 DPI) ---
+    try:
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        images_b64: list[str] = []
+        mat = fitz.Matrix(150 / 72, 150 / 72)
+        for page in doc:
+            pix = page.get_pixmap(matrix=mat)
+            images_b64.append(base64.b64encode(pix.tobytes("png")).decode())
+        doc.close()
+    except Exception as e:
+        logger.warning("Ошибка рендеринга PDF: %s", e)
+        return None
+
+    if not images_b64:
+        return None
+
+    logger.info("OpenRouter-парсер: %d стр. → %s", len(images_b64), _OPENROUTER_MODEL)
+
+    # --- Multimodal сообщение (Claude: порядок image/text не ограничен) ---
+    user_content: list[dict] = []
+    for img in images_b64:
+        user_content.append({
+            "type": "image_url",
+            "image_url": {"url": f"data:image/png;base64,{img}"},
+        })
+    user_content.append({"type": "text", "text": _EXTRACTION_PROMPT})
+
+    # --- Вызов OpenRouter ---
+    client = OpenAI(base_url=_OPENROUTER_BASE_URL, api_key=config.OPENROUTER_API_KEY)
+    resp = client.chat.completions.create(
+        model=_OPENROUTER_MODEL,
+        messages=[
+            {"role": "system", "content": _SYSTEM_PROMPT_STRICT},
+            {"role": "user",   "content": user_content},
+        ],
+        max_tokens=4096,
+        temperature=0,
+    )
+
+    usage = resp.usage
+    if usage:
+        logger.info(
+            "OpenRouter-парсер: LLM ответил — prompt_tokens=%d, completion_tokens=%d",
+            usage.prompt_tokens, usage.completion_tokens,
+        )
+
+    raw = (resp.choices[0].message.content or "").strip()
+    logger.debug("OpenRouter-парсер raw: %s", raw[:500])
+    # Убрать markdown fences на случай отклонения от инструкции
+    raw = re.sub(r"```(?:json)?\s*", "", raw).strip("`").strip()
+
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as e:
+        logger.warning("OpenRouter вернул невалидный JSON: %s\n%s", e, raw[:300])
+        return None
+
+    card = _dict_to_card(data)
+    if not card.reg_number:
+        logger.warning("OpenRouter-парсер: reg_number пустой. Ответ: %s", raw[:200])
+        return None
+    logger.info("OpenRouter-парсер: карточка reg_number=%s title=%.60s", card.reg_number, card.title)
+    return card
+
+
+# ---------------------------------------------------------------------------
+# Vision LLM парсер (локальная модель)
 # ---------------------------------------------------------------------------
 
 def _parse_vision(pdf_bytes: bytes) -> InvestigationCardData | None:

@@ -39,6 +39,14 @@ KG_LLM_BASE_URL = os.getenv("KG_LLM_BASE_URL", "http://host.docker.internal:8000
 KG_LLM_MODEL    = os.getenv("KG_LLM_MODEL",    "")
 KG_LLM_API_KEY  = os.getenv("KG_LLM_API_KEY",  "none")
 
+# PDF-парсер карточек изученности
+# PDF_PARSER_BACKEND: "local" — локальная vLLM-модель (KG_LLM_*),
+#                     "openrouter" — anthropic/claude-haiku-4-5 через OpenRouter
+PDF_PARSER_BACKEND  = os.getenv("PDF_PARSER_BACKEND",  "local")
+OPENROUTER_API_KEY  = os.getenv("OPENROUTER_API_KEY",  "")
+# PDF_PARSE_WORKERS: 0 = авто (4 для local, 10 для openrouter)
+PDF_PARSE_WORKERS   = int(os.getenv("PDF_PARSE_WORKERS", "0"))
+
 # MinIO (объектное хранилище для выходных файлов визуализации)
 # MINIO_ENDPOINT     — адрес S3 API (внутри Docker)
 # MINIO_PUBLIC_HOST  — адрес, доступный снаружи (для URL в ответах инструментов)

@@ -141,7 +141,15 @@ def build_from_manifest(manifest: dict, project_id: str, kg: Neo4jClient):
 # PDF карточки изученности
 # ---------------------------------------------------------------------------
 
-_PDF_PARSE_WORKERS = 4  # макс. параллельных LLM-запросов
+def _pdf_parse_workers() -> int:
+    """Вернуть лимит параллельных LLM-запросов по конфигу."""
+    try:
+        import config
+        if config.PDF_PARSE_WORKERS > 0:
+            return config.PDF_PARSE_WORKERS
+        return 10 if config.PDF_PARSER_BACKEND == "openrouter" else 4
+    except Exception:
+        return 4
 
 
 def index_pdf_attachments(project_id: str, gdb_path: str, manifest: dict, kg: Neo4jClient):
@@ -211,12 +219,13 @@ def index_pdf_attachments(project_id: str, gdb_path: str, manifest: dict, kg: Ne
         logger.info("[KG] Проект %s: PDF вложений не найдено", project_id)
         return
 
-    logger.info("[KG] Парсинг %d PDF карточек (до %d параллельно)...", len(pdf_jobs), _PDF_PARSE_WORKERS)
+    workers = _pdf_parse_workers()
+    logger.info("[KG] Парсинг %d PDF карточек (до %d параллельно)...", len(pdf_jobs), workers)
 
     # ── Фаза 2: параллельный парсинг карточек ────────────────────────────────
     # results: att_id -> (card, parent_layer_id, parent_extent)
     results: dict[str, tuple] = {}
-    with ThreadPoolExecutor(max_workers=_PDF_PARSE_WORKERS) as pool:
+    with ThreadPoolExecutor(max_workers=workers) as pool:
         future_to_job = {
             pool.submit(parse_investigation_card, pdf_bytes): (att_id, parent_layer_id, parent_extent)
             for att_id, pdf_bytes, parent_layer_id, parent_extent in pdf_jobs
