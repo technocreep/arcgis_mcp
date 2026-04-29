@@ -414,7 +414,11 @@
                                     </template>
                                     <template v-else>
                                         <i class="fa-solid fa-triangle-exclamation mr-1 text-amber-500"></i>
-                                        <span class="text-amber-700">Data Cube сервис недоступен — сценарии загрузятся при запуске контейнера</span>
+                                        <span class="text-amber-700">Не удалось загрузить сценарии</span>
+                                        <button type="button" @click="loadScenarios()"
+                                            class="ml-2 text-xs text-emerald-600 hover:text-emerald-800 underline font-medium">
+                                            Повторить
+                                        </button>
                                     </template>
                                 </div>
                             </div>
