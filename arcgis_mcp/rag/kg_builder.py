@@ -12,6 +12,7 @@ from __future__ import annotations
 import base64
 import json
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
@@ -140,8 +141,15 @@ def build_from_manifest(manifest: dict, project_id: str, kg: Neo4jClient):
 # PDF карточки изученности
 # ---------------------------------------------------------------------------
 
+_PDF_PARSE_WORKERS = 4  # макс. параллельных LLM-запросов
+
+
 def index_pdf_attachments(project_id: str, gdb_path: str, manifest: dict, kg: Neo4jClient):
-    """Извлечь PDF-вложения из .gdb, распарсить карточки, загрузить в KG."""
+    """Извлечь PDF-вложения из .gdb, распарсить карточки, загрузить в KG.
+
+    Парсинг карточек выполняется параллельно (до _PDF_PARSE_WORKERS потоков),
+    запись в KG — последовательно.
+    """
     attach_summary = manifest.get("attachments_summary", {})
     attach_tables = attach_summary.get("tables", [])
 
@@ -150,7 +158,10 @@ def index_pdf_attachments(project_id: str, gdb_path: str, manifest: dict, kg: Ne
         return
 
     layers_by_id = {l["layer_id"]: l for l in manifest.get("layers", [])}
-    pdf_count = 0
+
+    # ── Фаза 1: создать Attachment-узлы и собрать PDF для парсинга ──────────
+    # pdf_jobs: список (att_id, pdf_bytes, parent_layer_id, parent_extent)
+    pdf_jobs: list[tuple[str, bytes, str, Any]] = []
 
     for table_name in attach_tables:
         parent_layer_id = table_name.replace("__ATTACH", "")
@@ -171,7 +182,6 @@ def index_pdf_attachments(project_id: str, gdb_path: str, manifest: dict, kg: Ne
             rel_globalid = props.get("REL_GLOBALID") or props.get("rel_globalid") or ""
             data_size = props.get("DATA_SIZE") or props.get("data_size") or 0
 
-            # Создать Attachment узел
             att_id = f"{project_id}::{table_name}::{i}"
             kg.merge_node("Attachment", {"id": att_id}, {
                 "layer_id": parent_layer_id,
@@ -187,7 +197,6 @@ def index_pdf_attachments(project_id: str, gdb_path: str, manifest: dict, kg: Ne
                 "Attachment", "id", att_id,
             )
 
-            # Парсить PDF карточку
             if "pdf" not in content_type.lower() and not att_name.lower().endswith(".pdf"):
                 continue
 
@@ -196,88 +205,98 @@ def index_pdf_attachments(project_id: str, gdb_path: str, manifest: dict, kg: Ne
                 logger.debug("[KG] Нет бинарных данных для %s[%d]", table_name, i)
                 continue
 
-            card = parse_investigation_card(pdf_bytes)
-            if card is None or not card.reg_number:
-                logger.debug("[KG] Не распознана карточка %s[%d]", table_name, i)
+            pdf_jobs.append((att_id, pdf_bytes, parent_layer_id, parent_extent))
+
+    if not pdf_jobs:
+        logger.info("[KG] Проект %s: PDF вложений не найдено", project_id)
+        return
+
+    logger.info("[KG] Парсинг %d PDF карточек (до %d параллельно)...", len(pdf_jobs), _PDF_PARSE_WORKERS)
+
+    # ── Фаза 2: параллельный парсинг карточек ────────────────────────────────
+    # results: att_id -> (card, parent_layer_id, parent_extent)
+    results: dict[str, tuple] = {}
+    with ThreadPoolExecutor(max_workers=_PDF_PARSE_WORKERS) as pool:
+        future_to_job = {
+            pool.submit(parse_investigation_card, pdf_bytes): (att_id, parent_layer_id, parent_extent)
+            for att_id, pdf_bytes, parent_layer_id, parent_extent in pdf_jobs
+        }
+        for future in as_completed(future_to_job):
+            att_id, parent_layer_id, parent_extent = future_to_job[future]
+            try:
+                card = future.result()
+            except Exception as e:
+                logger.warning("[KG] Ошибка парсинга %s: %s", att_id, e)
+                card = None
+            if card and card.reg_number:
+                results[att_id] = (card, parent_layer_id, parent_extent)
+            else:
+                logger.debug("[KG] Не распознана карточка %s", att_id)
+
+    # ── Фаза 3: запись результатов в KG (последовательно) ───────────────────
+    pdf_count = 0
+    for att_id, (card, parent_layer_id, parent_extent) in results.items():
+        kg.merge_node("InvestigationCard", {"reg_number": card.reg_number}, {
+            "inventory_rosgeolfond": card.inventory_rosgeolfond,
+            "inventory_tgf": card.inventory_tgf,
+            "title": card.title,
+            "authors": card.authors,
+            "organization": card.organization,
+            "year_start": card.year_start or 0,
+            "year_end": card.year_end or 0,
+            "purpose": card.purpose,
+            "minerals_json": json.dumps(card.minerals, ensure_ascii=False),
+            "reserves_calculated": card.reserves_calculated,
+            "resources_calculated": card.resources_calculated,
+            "work_type": card.work_type,
+            "scale": card.scale,
+            "abstract_methods": card.abstract_methods,
+            "abstract_results": card.abstract_results,
+            "abstract_conclusions": card.abstract_conclusions,
+            "keywords_json": json.dumps(card.keywords, ensure_ascii=False),
+            "area_km2": card.area_km2 or 0.0,
+            "bbox_json": json.dumps(card.bbox or {}, ensure_ascii=False),
+            "sheet_nomenclature": card.sheet_nomenclature,
+            "region_okrug": card.region_okrug,
+            "region_oblast": card.region_oblast,
+            "completion_status": card.completion_status,
+        })
+        kg.merge_rel(
+            "Attachment", "id", att_id,
+            "IS_CARD",
+            "InvestigationCard", "reg_number", card.reg_number,
+        )
+        for mineral in card.minerals:
+            if not mineral:
                 continue
-
-            # Уточнить reg_number если не извлечён
-            if not card.reg_number:
-                card.reg_number = f"{project_id}__{table_name}__{i}"
-
-            # InvestigationCard узел
-            kg.merge_node("InvestigationCard", {"reg_number": card.reg_number}, {
-                "inventory_rosgeolfond": card.inventory_rosgeolfond,
-                "inventory_tgf": card.inventory_tgf,
-                "title": card.title,
-                "authors": card.authors,
-                "organization": card.organization,
-                "year_start": card.year_start or 0,
-                "year_end": card.year_end or 0,
-                "purpose": card.purpose,
-                "minerals_json": json.dumps(card.minerals, ensure_ascii=False),
-                "reserves_calculated": card.reserves_calculated,
-                "resources_calculated": card.resources_calculated,
+            kg.merge_node("Mineral", {"name": mineral})
+            kg.merge_rel(
+                "InvestigationCard", "reg_number", card.reg_number,
+                "TARGETS",
+                "Mineral", "name", mineral,
+            )
+        if card.organization:
+            org = card.organization[:100]
+            kg.merge_node("Organization", {"name": org})
+            kg.merge_rel(
+                "InvestigationCard", "reg_number", card.reg_number,
+                "CONDUCTED_BY",
+                "Organization", "name", org,
+            )
+        if card.work_type:
+            method_id = f"{card.work_type}::{card.scale}"
+            kg.merge_node("WorkMethod", {"name": method_id}, {
                 "work_type": card.work_type,
                 "scale": card.scale,
-                "abstract_methods": card.abstract_methods,
-                "abstract_results": card.abstract_results,
-                "abstract_conclusions": card.abstract_conclusions,
-                "keywords_json": json.dumps(card.keywords, ensure_ascii=False),
-                "area_km2": card.area_km2 or 0.0,
-                "bbox_json": json.dumps(card.bbox or {}, ensure_ascii=False),
-                "sheet_nomenclature": card.sheet_nomenclature,
-                "region_okrug": card.region_okrug,
-                "region_oblast": card.region_oblast,
-                "completion_status": card.completion_status,
             })
-
-            # Attachment → InvestigationCard
             kg.merge_rel(
-                "Attachment", "id", att_id,
-                "IS_CARD",
                 "InvestigationCard", "reg_number", card.reg_number,
+                "USES_METHOD",
+                "WorkMethod", "name", method_id,
             )
-
-            # Minerals
-            for mineral in card.minerals:
-                if not mineral:
-                    continue
-                kg.merge_node("Mineral", {"name": mineral})
-                kg.merge_rel(
-                    "InvestigationCard", "reg_number", card.reg_number,
-                    "TARGETS",
-                    "Mineral", "name", mineral,
-                )
-
-            # Organization
-            if card.organization:
-                org = card.organization[:100]
-                kg.merge_node("Organization", {"name": org})
-                kg.merge_rel(
-                    "InvestigationCard", "reg_number", card.reg_number,
-                    "CONDUCTED_BY",
-                    "Organization", "name", org,
-                )
-
-            # WorkMethod
-            if card.work_type:
-                method_id = f"{card.work_type}::{card.scale}"
-                kg.merge_node("WorkMethod", {"name": method_id}, {
-                    "work_type": card.work_type,
-                    "scale": card.scale,
-                })
-                kg.merge_rel(
-                    "InvestigationCard", "reg_number", card.reg_number,
-                    "USES_METHOD",
-                    "WorkMethod", "name", method_id,
-                )
-
-            # Spatial coverage: карточка → слои с пересекающимся bbox
-            if card.bbox and parent_extent:
-                _link_card_to_layers(card.reg_number, card.bbox, manifest, project_id, kg)
-
-            pdf_count += 1
+        if card.bbox and parent_extent:
+            _link_card_to_layers(card.reg_number, card.bbox, manifest, project_id, kg)
+        pdf_count += 1
 
     logger.info("[KG] Проект %s: %d PDF карточек проиндексировано", project_id, pdf_count)
 
