@@ -407,8 +407,15 @@
                                         </div>
                                     </div>
                                 </div>
-                                <div v-else class="text-xs text-slate-400 italic py-2">
-                                    <i class="fa-solid fa-circle-notch fa-spin mr-1"></i> Loading scenarios...
+                                <div v-else class="text-xs italic py-2">
+                                    <template v-if="scenariosLoading">
+                                        <i class="fa-solid fa-circle-notch fa-spin mr-1 text-slate-400"></i>
+                                        <span class="text-slate-400">Loading scenarios…</span>
+                                    </template>
+                                    <template v-else>
+                                        <i class="fa-solid fa-triangle-exclamation mr-1 text-amber-500"></i>
+                                        <span class="text-amber-700">Data Cube сервис недоступен — сценарии загрузятся при запуске контейнера</span>
+                                    </template>
                                 </div>
                             </div>
 

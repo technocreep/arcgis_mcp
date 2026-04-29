@@ -427,6 +427,7 @@ createApp({
         // Report mode (multi-scenario)
         const dcMode = ref('report')              // 'report' | 'single'
         const reportScenarios = ref([])           // predefined scenario list from API
+        const scenariosLoading = ref(false)       // true while /api/datacube/scenarios is in-flight
         const reportJobId = ref(null)
         const reportJobStatus = ref(null)         // null | 'pending' | 'running' | 'done' | 'failed'
         const reportScenarioStatuses = ref({})    // {scenario_id: 'pending|running|done|failed'}
@@ -511,10 +512,12 @@ createApp({
         )
 
         const loadScenarios = async () => {
+            scenariosLoading.value = true
             try {
                 const res = await fetch('/api/datacube/scenarios')
                 if (res.ok) reportScenarios.value = await res.json()
             } catch { /* ignore */ }
+            finally { scenariosLoading.value = false }
         }
 
         const reportDefaultForm = () => ({
@@ -867,7 +870,7 @@ createApp({
             projectsCube, isJobRunning, cubeReady,
             runningStatusLabel,
             // data cube — report mode
-            dcMode,
+            dcMode, scenariosLoading,
             reportScenarios, reportJobId, reportJobStatus,
             reportScenarioStatuses, reportCurrentScenario,
             reportSummaryRows, reportError,

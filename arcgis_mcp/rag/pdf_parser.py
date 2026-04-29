@@ -164,6 +164,31 @@ def parse_investigation_card(pdf_bytes: bytes) -> InvestigationCardData | None:
 
 
 # ---------------------------------------------------------------------------
+# Вспомогательные функции
+# ---------------------------------------------------------------------------
+
+def _finalize_card(card: "InvestigationCardData", raw: str, parser_name: str) -> "InvestigationCardData | None":
+    """Применить fallback для reg_number и вернуть карточку или None."""
+    if not card.reg_number:
+        # Поле 1 не найдено — пробуем инвентарные номера как суррогатный ключ
+        fallback = card.inventory_rosgeolfond or card.inventory_tgf
+        if fallback:
+            card.reg_number = fallback
+            logger.info(
+                "%s: reg_number пустой, используем инвентарный номер %s (title=%.60s)",
+                parser_name, card.reg_number, card.title,
+            )
+        else:
+            logger.warning(
+                "%s: reg_number и инвентарные номера пусты, карточка отброшена. Ответ: %s",
+                parser_name, raw[:200],
+            )
+            return None
+    logger.info("%s: карточка reg_number=%s title=%.60s", parser_name, card.reg_number, card.title)
+    return card
+
+
+# ---------------------------------------------------------------------------
 # Системный промпт для моделей с чистым JSON-выводом (OpenRouter / Claude)
 # ---------------------------------------------------------------------------
 
@@ -259,12 +284,7 @@ def _parse_openrouter(pdf_bytes: bytes) -> InvestigationCardData | None:
         logger.warning("OpenRouter вернул невалидный JSON: %s\n%s", e, raw[:300])
         return None
 
-    card = _dict_to_card(data)
-    if not card.reg_number:
-        logger.warning("OpenRouter-парсер: reg_number пустой. Ответ: %s", raw[:200])
-        return None
-    logger.info("OpenRouter-парсер: карточка reg_number=%s title=%.60s", card.reg_number, card.title)
-    return card
+    return _finalize_card(_dict_to_card(data), raw, "OpenRouter-парсер")
 
 
 # ---------------------------------------------------------------------------
@@ -354,12 +374,7 @@ def _parse_vision(pdf_bytes: bytes) -> InvestigationCardData | None:
         logger.warning("LLM вернул невалидный JSON: %s\n%s", e, raw[:300])
         return None
 
-    card = _dict_to_card(data)
-    if not card.reg_number:
-        logger.warning("Vision-парсер: reg_number пустой, карточка не распознана. Ответ: %s", raw[:200])
-        return None
-    logger.info("Vision-парсер: карточка распознана reg_number=%s title=%.60s", card.reg_number, card.title)
-    return card
+    return _finalize_card(_dict_to_card(data), raw, "Vision-парсер")
 
 
 def _dict_to_card(data: dict) -> InvestigationCardData:
