@@ -64,7 +64,6 @@ services:
     container_name: data-cube-server
     volumes:
       - projects:/app/projects
-      - ./Data_cube:/app/data_cube  # локальный сабмодуль монтируется поверх клонированного кода
     env_file:
       - .env
     environment:

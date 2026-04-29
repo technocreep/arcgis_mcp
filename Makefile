@@ -4,11 +4,11 @@ COMPOSE := docker compose
 .PHONY: help
 help:
 	@echo ""
-	@echo "  make update-cube   — git pull + pip install в контейнере + перезапуск стека"
+	@echo "  make update-cube   — git pull + pip install в контейнере + перезапуск (новый код Data_cube)"
 	@echo "  make rebuild-cube  — пересборка образа data-cube с нуля (новый Dockerfile / apt-пакеты)"
 	@echo "  make reload-app    — перезапустить gis-loader + gis-mcp без пересборки (правки кода)"
 	@echo "  make rebuild-app   — пересобрать gis-loader + gis-mcp и перезапустить"
-	@echo "  make rebuild       — пересобрать всё и поднять (без удаления данных)"
+	@echo "  make rebuild       — пересобрать ВСЁ с нуля включая data-cube (аналог down+up --build+rebuild-cube)"
 	@echo ""
 
 # ─── Data Cube ────────────────────────────────────────────────────────────────
@@ -16,7 +16,7 @@ help:
 # Новый коммит в Data_cube → применить без пересборки образа
 .PHONY: update-cube
 update-cube:
-	git -C Data_cube pull
+	docker exec data-cube-server bash -c "cd /app/data_cube && git pull && pip install -q -e '.[catboost,gis]'"
 	$(COMPOSE) restart data-cube
 
 # Изменился Dockerfile.datacube или нужны новые системные пакеты
