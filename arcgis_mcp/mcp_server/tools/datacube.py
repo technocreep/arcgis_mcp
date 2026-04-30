@@ -726,6 +726,8 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
                 clip_to_view,
                 save_figure,
                 upload_to_minio,
+                find_elevation_field,
+                label_isolines,
             )
         except ImportError as e:
             return json.dumps({"error": f"viz_utils import failed: {e}"}, ensure_ascii=False)
@@ -746,28 +748,32 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
         fig_h = fig_w / aspect
         fig, ax = plt.subplots(figsize=(fig_w, fig_h), dpi=150)
 
-        # Score layer
-        lons_arr = np.array(lons)
-        lats_arr = np.array(lats)
-        scores_arr = np.array(scores)
+        # Score layer — semi-transparent rectangles sized by cell_size_m
+        import math
+        from matplotlib.patches import Rectangle
+        from matplotlib.collections import PatchCollection
 
-        if len(lons) > 5000:
-            # Dense grid → interpolated fill
-            from scipy.interpolate import griddata
-            xi = np.linspace(minx, maxx, 300)
-            yi = np.linspace(miny, maxy, 300)
-            xi, yi = np.meshgrid(xi, yi)
-            zi = griddata((lons_arr, lats_arr), scores_arr, (xi, yi), method="linear")
-            cf = ax.contourf(xi, yi, zi, levels=20, cmap="viridis", alpha=0.85)
-            plt.colorbar(cf, ax=ax, label="Prospectivity Score", shrink=0.7)
-        else:
-            # Scatter
-            cell = float(blocks[0].get("cell_size_m", 500))
-            deg_per_m = 1 / 111_000
-            s_pts = max(1, (cell * deg_per_m / (maxx - minx)) * fig_w * 72) ** 2
-            sc = ax.scatter(lons_arr, lats_arr, c=scores_arr, cmap="viridis",
-                            s=s_pts, alpha=0.85, linewidths=0)
-            plt.colorbar(sc, ax=ax, label="Prospectivity Score", shrink=0.7)
+        patches = []
+        patch_scores = []
+        default_cell = float(blocks[0].get("cell_size_m") or 500) if blocks else 500.0
+        for b in blocks:
+            lo = b.get("lon")
+            la = b.get("lat")
+            sc_val = b.get("score")
+            if lo is None or la is None or sc_val is None:
+                continue
+            lo, la, sc_val = float(lo), float(la), float(sc_val)
+            cell_m = float(b.get("cell_size_m") or default_cell)
+            half_lat = (cell_m / 111_000) / 2
+            half_lon = (cell_m / (111_000 * math.cos(math.radians(la)))) / 2
+            patches.append(Rectangle((lo - half_lon, la - half_lat), 2 * half_lon, 2 * half_lat))
+            patch_scores.append(sc_val)
+
+        patch_scores_arr = np.array(patch_scores)
+        col = PatchCollection(patches, cmap="viridis", alpha=0.55, linewidths=0)
+        col.set_array(patch_scores_arr)
+        ax.add_collection(col)
+        plt.colorbar(col, ax=ax, label="Prospectivity Score", shrink=0.7)
 
         # Optional GIS layers
         layers_rendered: list[str] = []
@@ -803,8 +809,15 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
                             gdf.plot(ax=ax, color=color, markersize=3, alpha=0.7,
                                      label=label, zorder=5)
                         elif "line" in geom_type:
-                            gdf.plot(ax=ax, color=color, linewidth=0.8, alpha=0.8,
-                                     label=label, zorder=5)
+                            # Relief contours: render like plot_relief (gray + elevation labels)
+                            elev_col = find_elevation_field(gdf)
+                            if elev_col:
+                                gdf.plot(ax=ax, color="#888888", linewidth=0.5,
+                                         alpha=0.5, zorder=4, label=label)
+                                label_isolines(ax, gdf, elev_col, bounds, target=50)
+                            else:
+                                gdf.plot(ax=ax, color=color, linewidth=0.8, alpha=0.8,
+                                         label=label, zorder=5)
                         else:
                             gdf.plot(ax=ax, facecolor="none", edgecolor=color,
                                      linewidth=0.8, alpha=0.8, label=label, zorder=5)
