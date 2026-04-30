@@ -809,15 +809,24 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
                         if "point" in geom_type:
                             # Auto-detect density rendering for geophysical point fields
                             import pandas as _pd
+                            from .viz_utils import clip_quantiles as _clip_q
                             _skip = {"objectid", "fid", "shape_area", "shape_length",
                                      "x_m", "y_m", "lon", "lat", "row", "col", "block_id"}
-                            val_field = next(
-                                (c for c in gdf.columns
-                                 if c.lower() not in _skip
-                                 and not c.lower().startswith(("shape", "fid"))
-                                 and _pd.api.types.is_numeric_dtype(gdf[c])
-                                 and gdf[c].notna().any()),
-                                None,
+                            _num_fields = [
+                                c for c in gdf.columns
+                                if c.lower() not in _skip
+                                and not c.lower().startswith(("shape", "fid"))
+                                and _pd.api.types.is_numeric_dtype(gdf[c])
+                                and gdf[c].notna().any()
+                            ]
+                            # Prefer anomaly/delta fields; then fields with both +/- values
+                            _anomaly_kw = ("delta", "дельта", "anomal", "аномал")
+                            val_field = (
+                                next((c for c in _num_fields
+                                      if any(kw in c.lower() for kw in _anomaly_kw)), None)
+                                or next((c for c in _num_fields
+                                         if gdf[c].min() < 0 < gdf[c].max()), None)
+                                or (_num_fields[0] if _num_fields else None)
                             )
                             if val_field and len(gdf) >= 200:
                                 from scipy.interpolate import griddata as _griddata
@@ -836,11 +845,19 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
                                     gz = _griddata((_xm, _ym), _zm, (gx, gy), method="linear")
                                     dn = lyr_meta.get("display_name", lid_req)
                                     cmap_d = auto_colormap(val_field, lyr_meta.get("units"), dn)
+                                    # Normalize with clip_quantiles; symmetrize diverging cmaps
+                                    vmin_q, vmax_q = _clip_q(col_vals.dropna())
+                                    _div_cmaps = ("RdBu", "RdYlBu", "bwr", "seismic",
+                                                  "coolwarm", "PiYG", "PRGn")
+                                    if any(d in cmap_d for d in _div_cmaps):
+                                        _abs = max(abs(vmin_q), abs(vmax_q))
+                                        vmin_q, vmax_q = -_abs, _abs
                                     cf = ax.contourf(gx, gy, gz, levels=20, cmap=cmap_d,
+                                                     vmin=vmin_q, vmax=vmax_q,
                                                      alpha=0.65, zorder=3)
                                     ax.contour(gx, gy, gz, levels=10, colors="black",
                                                linewidths=0.3, alpha=0.35, zorder=3)
-                                    plt.colorbar(cf, ax=ax, label=f"{dn}", shrink=0.6)
+                                    plt.colorbar(cf, ax=ax, label=dn, shrink=0.6)
                                     layers_rendered.append(lid_req)
                                     continue
                             gdf.plot(ax=ax, color=color, markersize=3, alpha=0.7,
