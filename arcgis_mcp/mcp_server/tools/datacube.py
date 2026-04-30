@@ -728,6 +728,7 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
                 upload_to_minio,
                 find_elevation_field,
                 label_isolines,
+                auto_colormap,
             )
         except ImportError as e:
             return json.dumps({"error": f"viz_utils import failed: {e}"}, ensure_ascii=False)
@@ -806,6 +807,42 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
                         geom_type = gdf.geometry.geom_type.mode().iloc[0].lower() if len(gdf) else "point"
                         label = lyr_meta.get("display_name", lid_req)
                         if "point" in geom_type:
+                            # Auto-detect density rendering for geophysical point fields
+                            import pandas as _pd
+                            _skip = {"objectid", "fid", "shape_area", "shape_length",
+                                     "x_m", "y_m", "lon", "lat", "row", "col", "block_id"}
+                            val_field = next(
+                                (c for c in gdf.columns
+                                 if c.lower() not in _skip
+                                 and not c.lower().startswith(("shape", "fid"))
+                                 and _pd.api.types.is_numeric_dtype(gdf[c])
+                                 and gdf[c].notna().any()),
+                                None,
+                            )
+                            if val_field and len(gdf) >= 200:
+                                from scipy.interpolate import griddata as _griddata
+                                col_vals = _pd.to_numeric(gdf[val_field], errors="coerce")
+                                _x = gdf.geometry.x.values
+                                _y = gdf.geometry.y.values
+                                _mask = ~np.isnan(col_vals.values)
+                                if _mask.sum() >= 10:
+                                    _xm, _ym = _x[_mask], _y[_mask]
+                                    _zm = col_vals.values[_mask]
+                                    _ig = 200
+                                    gx, gy = np.mgrid[
+                                        _xm.min():_xm.max():complex(_ig),
+                                        _ym.min():_ym.max():complex(_ig),
+                                    ]
+                                    gz = _griddata((_xm, _ym), _zm, (gx, gy), method="linear")
+                                    dn = lyr_meta.get("display_name", lid_req)
+                                    cmap_d = auto_colormap(val_field, lyr_meta.get("units"), dn)
+                                    cf = ax.contourf(gx, gy, gz, levels=20, cmap=cmap_d,
+                                                     alpha=0.65, zorder=3)
+                                    ax.contour(gx, gy, gz, levels=10, colors="black",
+                                               linewidths=0.3, alpha=0.35, zorder=3)
+                                    plt.colorbar(cf, ax=ax, label=f"{dn}", shrink=0.6)
+                                    layers_rendered.append(lid_req)
+                                    continue
                             gdf.plot(ax=ax, color=color, markersize=3, alpha=0.7,
                                      label=label, zorder=5)
                         elif "line" in geom_type:
