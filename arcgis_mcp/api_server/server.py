@@ -141,10 +141,12 @@ class GetProjectSummaryRequest(BaseModel):
     tags=["inventory"],
 )
 async def get_project_summary(req: GetProjectSummaryRequest):
-    """Получить сводку по проекту: слои, группы, CRS, вложения.
+    """Получить сводку по проекту.
 
-    Вызывай после list_projects() чтобы узнать состав проекта.
-    Используй project_id из list_projects() во всех последующих инструментах.
+    Возвращает: name, map (название + extent_wgs84), layers_total, layers_non_empty,
+    mapping_coverage (% слоёв с расшифровкой из .aprx), groups (словарь группа→число слоёв),
+    attachments_count, crs, has_3d_layers, warnings.
+    Вызывай чтобы узнать доступные группы перед list_layers(group=...).
     """
     return _parse(get_project_summary_fn(req.project_id))
 
@@ -152,10 +154,15 @@ async def get_project_summary(req: GetProjectSummaryRequest):
 class ListLayersRequest(BaseModel):
     project_id: str = Field(..., description="ID проекта из list_projects()")
     group: Optional[str] = Field(
-        None, description='Фильтр по группе, например "Гравика R-42"'
+        None, description='Фильтр по группе, например "Гравика R-42". Список групп — в get_project_summary().'
     )
     include_needs_review: bool = Field(
         True, description="Включить слои без расшифровки (по умолчанию True)"
+    )
+    output_format: str = Field(
+        "compact",
+        description='"compact" (по умолчанию) — текст сгруппированный по группам, экономит контекст. '
+                    '"json" — полный JSON со всеми полями, для отладки.',
     )
 
 
@@ -166,11 +173,13 @@ class ListLayersRequest(BaseModel):
     tags=["inventory"],
 )
 async def list_layers(req: ListLayersRequest):
-    """Показать список слоёв проекта.
+    """Показать список слоёв проекта, сгруппированных по группам.
 
-    Для каждого слоя возвращает display_name, тип геометрии, количество объектов, группу.
+    Для каждого слоя: layer_id, display_name, тип геометрии, количество объектов.
+    layer_id используй в визуализационных инструментах и describe_layer().
+    Слои с ⚠ (needs_review) найдены только в .gdb — их display_name может быть нечитаемым.
     """
-    return _parse(list_layers_fn(req.group, req.include_needs_review, req.project_id))
+    return _parse(list_layers_fn(req.group, req.include_needs_review, req.project_id, req.output_format))
 
 
 class DescribeLayerRequest(BaseModel):
@@ -188,9 +197,12 @@ class DescribeLayerRequest(BaseModel):
     tags=["inventory"],
 )
 async def describe_layer(req: DescribeLayerRequest):
-    """Подробное описание слоя: поля, числовая и категориальная статистика, CRS, extent, вложения.
+    """Подробное описание слоя из manifest.
 
-    Принимает display_name, layer_id или alias — автоматически определяет слой.
+    Возвращает: geometry_type, feature_count, crs_epsg, extent_wgs84, units,
+    fields (каждое поле: name, dtype, min/max/mean для числовых, unique_count/top_values для строковых).
+    Для слоёв ≥10k объектов статистика берётся из layer_profiles/ (может отсутствовать — тогда используй summarize_layer).
+    Принимает display_name, layer_id или alias — сервер разрешает автоматически.
     """
     return _parse(describe_layer_fn(req.layer, req.project_id))
 
@@ -224,10 +236,11 @@ class QueryFeaturesRequest(BaseModel):
     tags=["query"],
 )
 async def query_features(req: QueryFeaturesRequest):
-    """Получить объекты из слоя с фильтрацией по атрибутам. Читает напрямую из .gdb.
+    """Выборка объектов из слоя с фильтрацией и выбором полей. Читает напрямую из .gdb.
 
-    Используй для получения конкретных значений или когда нужно больше деталей,
-    чем предоставляет describe_layer().
+    Возвращает: features (массив объектов с выбранными полями), count, filters_applied.
+    Фильтры: JSON {поле: значение}, поддерживает операторы >=, <=, частичное совпадение.
+    Используй для получения конкретных строк, когда describe_layer() недостаточно.
     """
     return _parse(query_features_fn(req.layer, req.filters, req.limit, req.fields, req.project_id))
 
@@ -285,10 +298,11 @@ class SearchIzuchennostRequest(BaseModel):
     tags=["izuchennost"],
 )
 async def search_izuchennost(req: SearchIzuchennostRequest):
-    """Поиск в слоях изученности (Izuch_A_sel и подобных) по типу работ, годам, масштабу, ключевым словам.
+    """Быстрый поиск карточек изученности по атрибутам.
 
-    Используй для вопросов: "Какие работы проводились на этой территории?",
-    "Есть ли аэромагнитные данные после 2000 года?" и т.д.
+    Возвращает: записи с name, year, work_type, scale, organization, area.
+    Ищет в слоях вроде Izuch_A_sel, Izuch_B_sel (частичное совпадение по строкам).
+    Для сложных семантических запросов (связи, история по минералу) используй geo_context_query.
     """
     return _parse(
         search_izuchennost_fn(
@@ -318,9 +332,11 @@ class ListAttachmentsRequest(BaseModel):
     tags=["attachments"],
 )
 async def list_attachments(req: ListAttachmentsRequest):
-    """Показать список файлов-вложений (PDF, изображения) проекта.
+    """Показать список файлов-вложений (PDF, изображения) по проекту или слою.
 
-    Вложения хранятся в таблицах *__ATTACH в геобазе.
+    Возвращает: total_attachments, total_size_bytes, by_table (таблица→count/types/size).
+    Вложения хранятся в таблицах *__ATTACH в .gdb (связь через REL_GLOBALID).
+    Примечание: только список; для доступа к содержимому PDF используй geo_context_query.
     """
     return _parse(list_attachments_fn(req.layer, req.project_id))
 
@@ -381,10 +397,10 @@ class PlotLayerRequest(BaseModel):
 async def plot_layer(req: PlotLayerRequest):
     """Визуализация одного слоя на статичной карте.
 
+    Возвращает: markdown (готовая ссылка), url (MinIO или null), file (локальный путь).
     Стиль указывай явно (см. параметр style). Числовые поля → colorbar; категориальные → легенда tab20.
-    Для слоёв рельефа/горизонталей используй plot_relief.
-    Для геофизических точечных слоёв >10 000 объектов используй style="density".
-    Контур лицензии рисуется поверх (show_license=True по умолчанию).
+    Для слоёв рельефа/горизонталей используй plot_relief().
+    Для геофизических точечных слоёв используй style="density" + color_field.
     """
     return _parse(
         plot_layer_fn(
@@ -442,10 +458,11 @@ class PlotReliefRequest(BaseModel):
     tags=["visualization"],
 )
 async def plot_relief(req: PlotReliefRequest):
-    """Специализированная карта горизонталей рельефа.
+    """Специализированная карта рельефа с адаптивными подписями высот.
 
-    Серые изолинии + адаптивные подписи высот + реки синим + контур лицензии.
-    Используй этот инструмент вместо plot_layer для слоёв рельефа/горизонталей.
+    Возвращает: markdown, url, file.
+    Серые изолинии с автоматическими подписями высот, реки синим, контур лицензии.
+    Оптимальнее plot_layer для слоёв горизонталей (рельеф, высоты).
     """
     return _parse(
         plot_relief_fn(
@@ -464,9 +481,10 @@ async def plot_relief(req: PlotReliefRequest):
 async def plot_overlay(req: PlotOverlayRequest):
     """Сводная карта из нескольких слоёв: геология + тектоника + скважины + геофизика и т.д.
 
-    Первый слой в массиве = подложка, последний = поверх.
-    Контур лицензии рисуется после всех слоёв (zorder=10).
-    Возвращает путь к PNG-файлу и список отрисованных слоёв.
+    Возвращает: markdown, url, file, layers_rendered, warnings.
+    Порядок рендеринга: крупные полигоны → density → линии → точки (автоматически по типу).
+    Контур лицензии рисуется поверх всех слоёв.
+    Рельефные слои (с "relief"/"горизонт" в имени) рисуются серым с подписями высот автоматически.
     """
     return _parse(
         plot_overlay_fn(
@@ -505,11 +523,10 @@ class PlotHistogramRequest(BaseModel):
     tags=["visualization"],
 )
 async def plot_histogram(req: PlotHistogramRequest):
-    """Статистическая визуализация атрибутов слоя.
+    """Статистическая визуализация распределения атрибутов.
 
-    Автоматически выбирает тип графика: гистограмма для числовых полей,
-    bar-chart для категориальных, boxplot для группировки.
-    Возвращает путь к файлу и базовую статистику поля (field_stats).
+    Возвращает: markdown, url, file, field_stats (min, max, mean, std, count, unique_count).
+    Тип графика (histogram/bar/boxplot) выбирается автоматически по dtype и числу уникальных значений.
     """
     return _parse(
         plot_histogram_fn(
@@ -560,11 +577,12 @@ class PlotInteractiveRequest(BaseModel):
     tags=["visualization"],
 )
 async def plot_interactive(req: PlotInteractiveRequest):
-    """Интерактивная карта (Folium) — навигация, tooltip'ы, переключение слоёв.
+    """Интерактивная HTML-карта (Folium) — навигация, tooltip'ы, переключение слоёв.
 
-    Оптимальна для небольших наборов данных (скважины, канавы, рудные точки).
-    Для тяжёлых слоёв (>500 объектов) возвращает предупреждение и усекает данные.
-    Возвращает путь к .html файлу.
+    Возвращает: url (путь к .html), file, warnings (если слои усечены).
+    Лучше для исследования: скважины, канавы, пробы, точки наблюдений.
+    Слои >max_features_per_layer усекаются с предупреждением.
+    Tooltip-поля выбираются автоматически из manifest или по param tooltip_fields.
     """
     return _parse(
         plot_interactive_fn(
@@ -594,10 +612,14 @@ class DatacubeOverviewRequest(BaseModel):
     tags=["datacube"],
 )
 async def datacube_overview(req: DatacubeOverviewRequest):
-    """Первый вызов при работе с Data Cube. Возвращает метрики модели (pr_auc, cv),
-    распределение скоров блоков, топ-3 фичи по важности.
-    В report mode укажи scenario_id; если None — выбирается лучший по PR-AUC.
-    Используй datacube_report_overview() для списка доступных сценариев."""
+    """Первый вызов при работе с Data Cube.
+
+    Возвращает: pr_auc, cv_scores, score_distribution (гистограмма по децилям),
+    top_features (топ-3 по важности), blocks_total, mode (classic/report).
+    В report mode: укажи scenario_id или None → лучший по PR-AUC.
+    Для списка всех сценариев и профилей руды → datacube_report_overview().
+    Для карты → datacube_score_overlay() (требует report mode).
+    """
     return _parse(datacube_overview_fn(req.project_id, req.scenario_id))
 
 
@@ -618,9 +640,12 @@ class DatacubeBlockScoresRequest(BaseModel):
     tags=["datacube"],
 )
 async def datacube_block_scores(req: DatacubeBlockScoresRequest):
-    """Возвращает отсортированный список блоков: rank, block_id, score, lon/lat, dominant_driver_group.
-    Используй после datacube_overview() для выбора интересных блоков.
-    В report mode укажи scenario_id."""
+    """Список блоков по убыванию score.
+
+    Возвращает: rank, block_id, score, lon, lat, dominant_driver_group.
+    block_id используй в datacube_block_detail() для полного профиля блока.
+    В report mode укажи scenario_id.
+    """
     return _parse(datacube_block_scores_fn(req.project_id, req.top_n, req.min_score, req.scenario_id))
 
 
@@ -640,9 +665,13 @@ class DatacubeBlockDetailRequest(BaseModel):
     tags=["datacube"],
 )
 async def datacube_block_detail(req: DatacubeBlockDetailRequest):
-    """Детальная информация по одному блоку: геолокация, score и ранг, значения всех фич,
-    SHAP-значения (отсортированы по |значению|), доминирующий драйвер и его группа.
-    В report mode укажи scenario_id."""
+    """Полный профиль одного блока.
+
+    Возвращает: block_id, score, rank, lon/lat, все значения фич,
+    shap_values (отсортированы по |значению| — первый = главный драйвер),
+    dominant_driver, dominant_driver_group.
+    В report mode укажи scenario_id.
+    """
     return _parse(datacube_block_detail_fn(req.block_id, req.project_id, req.scenario_id))
 
 
@@ -692,7 +721,13 @@ class DatacubeScoreOverlayRequest(BaseModel):
     )
     visualization_type: str = Field(
         "mask",
-        description="mask — маска высоких скоров; contour — контурное сужение.",
+        description=(
+            '"mask" (mask_dynamics) — закрашенные блоки выше порога quantile, '
+            'цвет по score. Лучше для показа ареала перспективности. '
+            '"contour" (contour_narrowing) — контурное сужение: показывает '
+            'как зоны перспективности сжимаются при повышении quantile. '
+            'Используй "mask" по умолчанию.'
+        ),
     )
     layers: Optional[str] = Field(
         None,
@@ -715,14 +750,12 @@ class DatacubeScoreOverlayRequest(BaseModel):
     tags=["datacube"],
 )
 async def datacube_score_overlay(req: DatacubeScoreOverlayRequest):
-    """Визуализация результатов моделирования Data Cube на карте.
+    """Карта проспективности Data Cube с ГИС-слоями поверх.
 
-    Читает CSV блоков из report_visualizations/ (вычисленных report_visualization_runner.py),
-    строит изображение с цветовой шкалой score и накладывает ГИС-слои из проекта.
-    Возвращает markdown с встроенной картой и URL изображения в MinIO.
-
-    Перед вызовом: datacube_report_overview() → узнать scenario_id, label_profile_id, model_profile_id.
-    Агент не должен использовать готовые PNG из report_visualizations — только этот инструмент.
+    Блоки окрашены по score (viridis). Возвращает markdown (готовая ссылка на изображение),
+    url (MinIO), layers_rendered, blocks_rendered, score_range.
+    Workflow: datacube_report_overview() → datacube_score_overlay().
+    Для наложения слоёв используй параметр layers (краткий или расширенный формат с color/style).
     """
     return _parse(
         datacube_score_overlay_fn(
@@ -764,15 +797,14 @@ class GeoContextQueryRequest(BaseModel):
     tags=["knowledge_graph"],
 )
 async def geo_context_query(req: GeoContextQueryRequest):
-    """Запрос к Knowledge Graph через естественный язык (NL → Cypher → Neo4j).
+    """Семантический поиск в Knowledge Graph (история работ, связи, справочники).
 
-    Используй для семантических вопросов, которые не решаются manifest/gdb:
-    - история геологических работ по территории или полезному ископаемому
-    - связи между слоями, карточками изученности и организациями
-    - пространственное покрытие: какие карточки охватывают данный слой
-    - поиск по годам, масштабу, виду работ, авторам
-
-    Возвращает: query (исходный), cypher (сгенерированный запрос), count, results.
+    Возвращает: query, cypher (сгенерированный Cypher), count, results (массив записей).
+    Используй для:
+    - связей (полезное ископаемое → работы → организации)
+    - истории (какие работы в районе за 1980-2000, какие организации)
+    - пространственного охвата (какие карточки покрывают эту точку/слой)
+    Для атрибутного поиска по изученности используй search_izuchennost (быстрее).
     """
     return _parse(geo_context_query_fn(req.query, req.project_id))
 
