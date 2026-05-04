@@ -41,14 +41,9 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
     """Вернуть список P0-инструментов, связанных с хранилищем и состоянием."""
 
     def _resolve_project(project_id: str | None) -> str:
-        """Вернуть project_id из параметра или текущего контекста."""
-        pid = project_id or state.get("current_project_id")
-        if not pid:
-            raise ValueError(
-                "Проект не выбран. Сначала вызовите list_projects() и затем "
-                "get_project_summary(project_id=...) чтобы выбрать проект."
-            )
-        return pid
+        if not project_id:
+            raise ValueError("project_id обязателен.")
+        return project_id
 
     def list_projects() -> str:
         """Показать список всех доступных GIS-проектов.
@@ -74,10 +69,10 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
         }, ensure_ascii=False, indent=2)
 
     def get_project_summary(project_id: str) -> str:
-        """Получить сводку по проекту и установить его как текущий.
+        """Получить сводку по проекту: слои, группы, CRS, вложения.
 
-        Вызывай после list_projects() чтобы выбрать проект для работы.
-        После вызова все другие инструменты автоматически работают с этим проектом.
+        Вызывай после list_projects() для получения метаданных проекта.
+        Используй project_id из этого ответа во всех последующих инструментах.
 
         Args:
             project_id: Идентификатор проекта из list_projects()
@@ -86,9 +81,6 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
             manifest = store.get_manifest(project_id)
         except FileNotFoundError as e:
             return json.dumps({"error": str(e)}, ensure_ascii=False)
-
-        # Устанавливаем текущий проект
-        state["current_project_id"] = project_id
 
         proj = manifest.get("project", {})
         quality = manifest.get("quality", {})
@@ -147,7 +139,7 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
                    (например "Гравика R-42", "Магнитка R-42").
                    Список групп: в get_project_summary().
             include_needs_review: Включить слои без расшифровки (по умолчанию True).
-            project_id: ID проекта (необязательно, если уже выбран через get_project_summary).
+            project_id: ID проекта из list_projects().
             output_format: "compact" (по умолчанию) — текст, сгруппированный по группам;
                            "json" — полный JSON для отладки.
         """
@@ -240,7 +232,7 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
         Args:
             layer: Название слоя (display_name, layer_id или alias).
                    Примеры: "гравика", "gms_r", "Поле дельта G (мГал)", "скважины".
-            project_id: ID проекта (необязательно, если уже выбран).
+            project_id: ID проекта из list_projects().
         """
         try:
             pid = _resolve_project(project_id)

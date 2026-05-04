@@ -51,7 +51,8 @@ app = FastAPI(
     title="GIS Agent Service",
     description=(
         "Геоинформационный агент для работы с данными геологических проектов. "
-        "Начни с list_projects → get_project_summary. "
+        "Начни с list_projects чтобы получить project_id. "
+        "Передавай project_id явно в каждый инструмент. "
         "P0-инструменты (inventory) читают из manifest — быстро. "
         "P1-инструменты (query, search, attachments) читают .gdb напрямую."
     ),
@@ -71,8 +72,8 @@ app.add_middleware(
 
 store = ProjectStore(str(PROJECTS_DIR))
 
-# Мутабельный контекст текущего проекта — разделяется всеми инструментами
-_state: dict = {"current_project_id": None}
+# Пустой контекст — передаётся в make_tools для совместимости сигнатуры
+_state: dict = {}
 
 _inv = make_inventory_tools(store, _state)
 _qry = make_query_tools(store, _state)
@@ -136,27 +137,25 @@ class GetProjectSummaryRequest(BaseModel):
 @app.post(
     "/get_project_summary",
     operation_id="get_project_summary",
-    summary="Получить сводку по проекту и установить его как текущий",
+    summary="Получить сводку по проекту: слои, группы, CRS, вложения",
     tags=["inventory"],
 )
 async def get_project_summary(req: GetProjectSummaryRequest):
-    """Получить сводку по проекту и установить его как текущий.
+    """Получить сводку по проекту: слои, группы, CRS, вложения.
 
-    Вызывай после list_projects() чтобы выбрать проект для работы.
-    После вызова все другие инструменты автоматически работают с этим проектом.
+    Вызывай после list_projects() чтобы узнать состав проекта.
+    Используй project_id из list_projects() во всех последующих инструментах.
     """
     return _parse(get_project_summary_fn(req.project_id))
 
 
 class ListLayersRequest(BaseModel):
+    project_id: str = Field(..., description="ID проекта из list_projects()")
     group: Optional[str] = Field(
         None, description='Фильтр по группе, например "Гравика R-42"'
     )
     include_needs_review: bool = Field(
         True, description="Включить слои без расшифровки (по умолчанию True)"
-    )
-    project_id: Optional[str] = Field(
-        None, description="ID проекта (необязательно, если уже выбран через get_project_summary)"
     )
 
 
@@ -175,12 +174,10 @@ async def list_layers(req: ListLayersRequest):
 
 
 class DescribeLayerRequest(BaseModel):
+    project_id: str = Field(..., description="ID проекта из list_projects()")
     layer: str = Field(
         ...,
         description='Название слоя: display_name, layer_id или alias. Пример: "гравика", "скважины"',
-    )
-    project_id: Optional[str] = Field(
-        None, description="ID проекта (необязательно, если уже выбран)"
     )
 
 
@@ -203,6 +200,7 @@ async def describe_layer(req: DescribeLayerRequest):
 # ---------------------------------------------------------------------------
 
 class QueryFeaturesRequest(BaseModel):
+    project_id: str = Field(..., description="ID проекта из list_projects()")
     layer: str = Field(..., description="Название слоя (display_name, layer_id или alias)")
     filters: Optional[str] = Field(
         None,
@@ -216,9 +214,6 @@ class QueryFeaturesRequest(BaseModel):
     fields: Optional[str] = Field(
         None,
         description='Поля через запятую, например "Имя,Участ,POINT_X,POINT_Y". Если не указано — все поля.',
-    )
-    project_id: Optional[str] = Field(
-        None, description="ID проекта (необязательно, если уже выбран)"
     )
 
 
@@ -238,10 +233,8 @@ async def query_features(req: QueryFeaturesRequest):
 
 
 class SummarizeLayerRequest(BaseModel):
+    project_id: str = Field(..., description="ID проекта из list_projects()")
     layer: str = Field(..., description="Название слоя (display_name, layer_id или alias)")
-    project_id: Optional[str] = Field(
-        None, description="ID проекта (необязательно, если уже выбран)"
-    )
 
 
 @app.post(
@@ -264,6 +257,7 @@ async def summarize_layer(req: SummarizeLayerRequest):
 # ---------------------------------------------------------------------------
 
 class SearchIzuchennostRequest(BaseModel):
+    project_id: str = Field(..., description="ID проекта из list_projects()")
     query: Optional[str] = Field(
         None,
         description='Текстовый поиск по названию отчёта, авторам, организации. Пример: "аэромагнитная"',
@@ -282,9 +276,6 @@ class SearchIzuchennostRequest(BaseModel):
         None, description='Масштаб (частичное совпадение). Пример: "1:200000"'
     )
     limit: int = Field(30, ge=1, le=200, description="Максимум записей (по умолчанию 30, макс 200)")
-    project_id: Optional[str] = Field(
-        None, description="ID проекта (необязательно, если уже выбран)"
-    )
 
 
 @app.post(
@@ -312,13 +303,11 @@ async def search_izuchennost(req: SearchIzuchennostRequest):
 # ---------------------------------------------------------------------------
 
 class ListAttachmentsRequest(BaseModel):
+    project_id: str = Field(..., description="ID проекта из list_projects()")
     layer: Optional[str] = Field(
         None,
         description='Имя родительского слоя, например "Izuch_A_sel" или "изученность". '
                     "Если не указано — показать все вложения всех слоёв.",
-    )
-    project_id: Optional[str] = Field(
-        None, description="ID проекта (необязательно, если уже выбран)"
     )
 
 
@@ -343,8 +332,8 @@ async def list_attachments(req: ListAttachmentsRequest):
 # ---------------------------------------------------------------------------
 
 class PlotLayerRequest(BaseModel):
+    project_id: str = Field(..., description="ID проекта из list_projects()")
     layer_id: str = Field(..., description="ID или display_name слоя из manifest")
-    project_id: Optional[str] = Field(None, description="ID проекта (необязательно, если уже выбран)")
     color_field: Optional[str] = Field(
         None,
         description="Поле для раскраски. "
@@ -420,7 +409,7 @@ class PlotOverlayRequest(BaseModel):
             'Рельефные слои (relief/горизонтали) рисуются серым с подписями высот автоматически.'
         ),
     )
-    project_id: Optional[str] = Field(None, description="ID проекта (необязательно, если уже выбран)")
+    project_id: str = Field(..., description="ID проекта из list_projects()")
     show_license: bool = Field(True, description="Рисовать контур лицензии последним")
     show_legend: bool = Field(True, description="Показывать легенду со списком слоёв")
     title: Optional[str] = Field(None, description="Заголовок карты (авто, если None)")
@@ -433,8 +422,8 @@ class PlotOverlayRequest(BaseModel):
 
 
 class PlotReliefRequest(BaseModel):
+    project_id: str = Field(..., description="ID проекта из list_projects()")
     layer_id: str = Field(..., description="ID или display_name слоя горизонталей рельефа")
-    project_id: Optional[str] = Field(None, description="ID проекта (необязательно, если уже выбран)")
     show_rivers: bool = Field(True, description="Отображать слои рек поверх рельефа")
     show_license: bool = Field(True, description="Рисовать контур лицензии")
     title: Optional[str] = Field(None, description="Заголовок карты (авто, если None)")
@@ -488,9 +477,9 @@ async def plot_overlay(req: PlotOverlayRequest):
 
 
 class PlotHistogramRequest(BaseModel):
+    project_id: str = Field(..., description="ID проекта из list_projects()")
     layer_id: str = Field(..., description="ID или display_name слоя из manifest")
     field: str = Field(..., description="Имя поля для анализа")
-    project_id: Optional[str] = Field(None, description="ID проекта (необязательно, если уже выбран)")
     plot_type: str = Field(
         "auto",
         description=(
@@ -538,7 +527,7 @@ class PlotInteractiveRequest(BaseModel):
             'Все слои автоматически конвертируются в WGS84.'
         ),
     )
-    project_id: Optional[str] = Field(None, description="ID проекта (необязательно, если уже выбран)")
+    project_id: str = Field(..., description="ID проекта из list_projects()")
     tooltip_fields: Optional[str] = Field(
         None,
         description=(
@@ -590,7 +579,7 @@ async def plot_interactive(req: PlotInteractiveRequest):
 # ---------------------------------------------------------------------------
 
 class DatacubeOverviewRequest(BaseModel):
-    project_id: Optional[str] = Field(None, description="ID проекта (необязательно, если уже выбран)")
+    project_id: str = Field(..., description="ID проекта из list_projects()")
     scenario_id: Optional[str] = Field(
         None,
         description="ID сценария в report mode (regional_fast, balanced_reference, detailed_skeptical). "
@@ -613,7 +602,7 @@ async def datacube_overview(req: DatacubeOverviewRequest):
 
 
 class DatacubeBlockScoresRequest(BaseModel):
-    project_id: Optional[str] = Field(None, description="ID проекта (необязательно, если уже выбран)")
+    project_id: str = Field(..., description="ID проекта из list_projects()")
     top_n: int = Field(20, ge=1, le=200, description="Сколько блоков вернуть (по умолчанию 20)")
     min_score: Optional[float] = Field(None, ge=0.0, le=1.0, description="Минимальный порог score")
     scenario_id: Optional[str] = Field(
@@ -636,8 +625,8 @@ async def datacube_block_scores(req: DatacubeBlockScoresRequest):
 
 
 class DatacubeBlockDetailRequest(BaseModel):
+    project_id: str = Field(..., description="ID проекта из list_projects()")
     block_id: str = Field(..., description="ID блока из datacube_block_scores(), например 'block_2_0'")
-    project_id: Optional[str] = Field(None, description="ID проекта (необязательно, если уже выбран)")
     scenario_id: Optional[str] = Field(
         None,
         description="ID сценария в report mode. Если None — лучший по PR-AUC.",
@@ -658,7 +647,7 @@ async def datacube_block_detail(req: DatacubeBlockDetailRequest):
 
 
 class DatacubeReportOverviewRequest(BaseModel):
-    project_id: Optional[str] = Field(None, description="ID проекта (необязательно, если уже выбран)")
+    project_id: str = Field(..., description="ID проекта из list_projects()")
 
 
 @app.post(
@@ -681,7 +670,7 @@ async def datacube_report_overview(req: DatacubeReportOverviewRequest):
 
 
 class DatacubeScoreOverlayRequest(BaseModel):
-    project_id: Optional[str] = Field(None, description="ID проекта (необязательно, если уже выбран)")
+    project_id: str = Field(..., description="ID проекта из list_projects()")
     scenario_id: Optional[str] = Field(
         None,
         description="ID сценария (regional_fast, balanced_reference, detailed_skeptical). "
@@ -705,11 +694,17 @@ class DatacubeScoreOverlayRequest(BaseModel):
         "mask",
         description="mask — маска высоких скоров; contour — контурное сужение.",
     )
-    layer_names: Optional[str] = Field(
+    layers: Optional[str] = Field(
         None,
-        description='JSON-массив ID слоёв ГИС для наложения на карту. '
-                    'Пример: \'["DrudP_R_42","fault_layer"]\'. '
-                    'Если None — только блоки + контур лицензии.',
+        description=(
+            'JSON-массив ГИС-слоёв для наложения на карту. Два формата:\n'
+            'Краткий (авто-стиль): \'["layer_id1","layer_id2"]\'.\n'
+            'Расширенный (с кастомизацией): \'[{"layer_id":"l1","color":"#e63946","alpha":0.8},'
+            '{"layer_id":"l2","style":"density","color_field":"Au_ppm","colormap":"viridis"}]\'.\n'
+            'Ключи: layer_id (обязательно), color, alpha, linewidth, markersize, marker, '
+            'style ("scatter"|"density"|"lines"|"polygons"|"auto"), color_field, colormap.\n'
+            'Если None — только блоки + контур лицензии.'
+        ),
     )
 
 
@@ -737,7 +732,7 @@ async def datacube_score_overlay(req: DatacubeScoreOverlayRequest):
             req.model_profile_id,
             req.quantile,
             req.visualization_type,
-            req.layer_names,
+            req.layers,
         )
     )
 

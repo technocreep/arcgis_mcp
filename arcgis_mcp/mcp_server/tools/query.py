@@ -83,12 +83,9 @@ def _build_filter_mask(gdf: gpd.GeoDataFrame, filters: dict) -> Any:
 def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
 
     def _resolve_project(project_id: str | None) -> str:
-        pid = project_id or state.get("current_project_id")
-        if not pid:
-            raise ValueError(
-                "Проект не выбран. Сначала вызовите list_projects() и get_project_summary()."
-            )
-        return pid
+        if not project_id:
+            raise ValueError("project_id обязателен.")
+        return project_id
 
     def _resolve_layer(pid: str, layer: str) -> tuple[str, dict]:
         """Вернуть (layer_id, layer_entry) или выбросить ValueError."""

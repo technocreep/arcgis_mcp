@@ -17,12 +17,9 @@ from ..project_store import ProjectStore
 def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
 
     def _resolve_project(project_id: str | None) -> str:
-        pid = project_id or state.get("current_project_id")
-        if not pid:
-            raise ValueError(
-                "Проект не выбран. Сначала вызовите get_project_summary(project_id=...)."
-            )
-        return pid
+        if not project_id:
+            raise ValueError("project_id обязателен.")
+        return project_id
 
     def list_attachments(
         layer: str | None = None,

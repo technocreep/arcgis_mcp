@@ -34,10 +34,9 @@ def _geom_type_mode(gdf) -> str:
 def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
 
     def _resolve_project(project_id: str | None) -> str:
-        pid = project_id or state.get("current_project_id")
-        if not pid:
-            raise ValueError("Проект не выбран. Вызовите get_project_summary(project_id=...).")
-        return pid
+        if not project_id:
+            raise ValueError("project_id обязателен.")
+        return project_id
 
     def plot_interactive(
         layers: str,

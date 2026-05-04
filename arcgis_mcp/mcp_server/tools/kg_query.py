@@ -66,7 +66,7 @@ def make_tools(state: dict) -> list[Callable]:
 
         # Добавить фильтр по проекту если задан
         effective_query = query
-        pid = project_id or state.get("current_project_id")
+        pid = project_id
         if pid:
             effective_query = f"{query} [project_id filter: {pid}]"
             logger.info("geo_context_query | project_id=%s | effective_query: %s", pid, effective_query)

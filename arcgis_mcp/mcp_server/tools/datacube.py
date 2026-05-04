@@ -164,13 +164,9 @@ def _read_artifact(pid: str, rel_path: str, report_mode: bool) -> str | None:
 def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
 
     def _resolve_project(project_id: str | None) -> str:
-        pid = project_id or state.get("current_project_id")
-        if not pid:
-            raise ValueError(
-                "Проект не выбран. Сначала вызовите list_projects() и "
-                "get_project_summary(project_id=...) чтобы установить контекст."
-            )
-        return pid
+        if not project_id:
+            raise ValueError("project_id обязателен.")
+        return project_id
 
     # ── Tool 1 ───────────────────────────────────────────────────────────────
 
@@ -610,7 +606,7 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
         model_profile_id: str | None = None,
         quantile: str = "q90",
         visualization_type: str = "mask",
-        layer_names: str | None = None,
+        layers: str | None = None,
     ) -> str:
         """Карта проспективности Data Cube с наложением картографических слоёв.
 
@@ -626,8 +622,15 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
                               Если None — combined.
           quantile          — q90 | q95 | q99. Уровень отсечения проспективности.
           visualization_type — mask (mask_dynamics) | contour (contour_narrowing).
-          layer_names       — JSON-массив ID слоёв ГИС для наложения.
-                              Пример: '["DrudP_R_42","fault_layer"]'.
+          layers            — JSON-массив слоёв ГИС для наложения. Два формата:
+                              Краткий: '["layer_id1","layer_id2"]' — авто-стиль.
+                              Расширенный: '[{"layer_id":"l1","color":"#e63946","alpha":0.8,
+                              "style":"scatter"},{"layer_id":"l2","color_field":"Au_ppm",
+                              "colormap":"viridis"}]'.
+                              Ключи расширенного формата: layer_id (обязательно),
+                              color, alpha, linewidth, markersize, marker,
+                              style ("scatter"|"density"|"lines"|"polygons"|"auto"),
+                              color_field, colormap.
                               Если None — только блоки + контур лицензии.
 
         Перед вызовом используй datacube_report_overview() чтобы узнать доступные
@@ -779,20 +782,32 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
         # Optional GIS layers
         layers_rendered: list[str] = []
         warnings_out: list[str] = []
-        if layer_names:
+        if layers:
+            # Нормализуем оба формата: ["id1","id2"] и [{"layer_id":"id1",...}]
             try:
-                requested = json.loads(layer_names)
+                _raw = json.loads(layers)
+                if _raw and isinstance(_raw[0], str):
+                    layer_specs: list[dict] = [{"layer_id": lid} for lid in _raw]
+                else:
+                    layer_specs = _raw
             except Exception:
-                requested = []
+                layer_specs = []
 
             try:
+                import pandas as _pd
+                from scipy.interpolate import griddata as _griddata
+                from .viz_utils import clip_quantiles as _clip_q
+
                 gdb_path = store.get_gdb_path(pid)
                 manifest = store.get_manifest(pid)
                 layer_index = {lyr["layer_id"]: lyr for lyr in manifest.get("layers", [])}
 
-                colors = ["#e63946", "#2196F3", "#4CAF50", "#FF9800", "#9C27B0",
-                          "#00BCD4", "#795548", "#607D8B"]
-                for i, lid_req in enumerate(requested):
+                _default_colors = ["#e63946", "#2196F3", "#4CAF50", "#FF9800", "#9C27B0",
+                                   "#00BCD4", "#795548", "#607D8B"]
+                for i, spec in enumerate(layer_specs):
+                    lid_req = spec.get("layer_id") or spec if isinstance(spec, str) else None
+                    if not lid_req:
+                        continue
                     lyr_meta = layer_index.get(lid_req)
                     if lyr_meta is None:
                         warnings_out.append(f"Слой не найден: {lid_req}")
@@ -803,33 +818,63 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
                         gdf = clip_to_view(gdf, bounds)
                         if gdf.empty:
                             continue
-                        color = colors[i % len(colors)]
+
+                        # Per-layer style params
+                        color = spec.get("color") or _default_colors[i % len(_default_colors)]
+                        alpha_pt = spec.get("alpha", 0.7)
+                        alpha_ln = spec.get("alpha", 0.8)
+                        linewidth = spec.get("linewidth", 0.8)
+                        markersize = spec.get("markersize", 3)
+                        marker = spec.get("marker", "o")
+                        style_override = spec.get("style", "auto")
+                        color_field_override = spec.get("color_field")
+                        colormap_override = spec.get("colormap")
+
                         geom_type = gdf.geometry.geom_type.mode().iloc[0].lower() if len(gdf) else "point"
                         label = lyr_meta.get("display_name", lid_req)
+
                         if "point" in geom_type:
-                            # Auto-detect density rendering for geophysical point fields
-                            import pandas as _pd
-                            from .viz_utils import clip_quantiles as _clip_q
-                            _skip = {"objectid", "fid", "shape_area", "shape_length",
-                                     "x_m", "y_m", "lon", "lat", "row", "col", "block_id"}
-                            _num_fields = [
-                                c for c in gdf.columns
-                                if c.lower() not in _skip
-                                and not c.lower().startswith(("shape", "fid"))
-                                and _pd.api.types.is_numeric_dtype(gdf[c])
-                                and gdf[c].notna().any()
-                            ]
-                            # Prefer anomaly/delta fields; then fields with both +/- values
-                            _anomaly_kw = ("delta", "дельта", "anomal", "аномал")
-                            val_field = (
-                                next((c for c in _num_fields
-                                      if any(kw in c.lower() for kw in _anomaly_kw)), None)
-                                or next((c for c in _num_fields
-                                         if gdf[c].min() < 0 < gdf[c].max()), None)
-                                or (_num_fields[0] if _num_fields else None)
-                            )
-                            if val_field and len(gdf) >= 200:
-                                from scipy.interpolate import griddata as _griddata
+                            # Determine if density rendering is needed
+                            use_density = False
+                            val_field = color_field_override
+
+                            if style_override == "density":
+                                use_density = True
+                                # val_field from override or auto-detect
+                                if not val_field:
+                                    _skip = {"objectid", "fid", "shape_area", "shape_length",
+                                             "x_m", "y_m", "lon", "lat", "row", "col", "block_id"}
+                                    _num_fields = [
+                                        c for c in gdf.columns
+                                        if c.lower() not in _skip
+                                        and not c.lower().startswith(("shape", "fid"))
+                                        and _pd.api.types.is_numeric_dtype(gdf[c])
+                                        and gdf[c].notna().any()
+                                    ]
+                                    val_field = _num_fields[0] if _num_fields else None
+                            elif style_override == "auto":
+                                # Auto-detect density for geophysical point fields (≥200 pts)
+                                if not val_field:
+                                    _skip = {"objectid", "fid", "shape_area", "shape_length",
+                                             "x_m", "y_m", "lon", "lat", "row", "col", "block_id"}
+                                    _num_fields = [
+                                        c for c in gdf.columns
+                                        if c.lower() not in _skip
+                                        and not c.lower().startswith(("shape", "fid"))
+                                        and _pd.api.types.is_numeric_dtype(gdf[c])
+                                        and gdf[c].notna().any()
+                                    ]
+                                    _anomaly_kw = ("delta", "дельта", "anomal", "аномал")
+                                    val_field = (
+                                        next((c for c in _num_fields
+                                              if any(kw in c.lower() for kw in _anomaly_kw)), None)
+                                        or next((c for c in _num_fields
+                                                 if gdf[c].min() < 0 < gdf[c].max()), None)
+                                        or (_num_fields[0] if _num_fields else None)
+                                    )
+                                use_density = bool(val_field and len(gdf) >= 200)
+
+                            if use_density and val_field:
                                 col_vals = _pd.to_numeric(gdf[val_field], errors="coerce")
                                 _x = gdf.geometry.x.values
                                 _y = gdf.geometry.y.values
@@ -844,8 +889,9 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
                                     ]
                                     gz = _griddata((_xm, _ym), _zm, (gx, gy), method="linear")
                                     dn = lyr_meta.get("display_name", lid_req)
-                                    cmap_d = auto_colormap(val_field, lyr_meta.get("units"), dn)
-                                    # Normalize with clip_quantiles; symmetrize diverging cmaps
+                                    cmap_d = colormap_override or auto_colormap(
+                                        val_field, lyr_meta.get("units"), dn
+                                    )
                                     vmin_q, vmax_q = _clip_q(col_vals.dropna())
                                     _div_cmaps = ("RdBu", "RdYlBu", "bwr", "seismic",
                                                   "coolwarm", "PiYG", "PRGn")
@@ -854,27 +900,30 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
                                         vmin_q, vmax_q = -_abs, _abs
                                     cf = ax.contourf(gx, gy, gz, levels=20, cmap=cmap_d,
                                                      vmin=vmin_q, vmax=vmax_q,
-                                                     alpha=0.65, zorder=3)
+                                                     alpha=alpha_pt, zorder=3)
                                     ax.contour(gx, gy, gz, levels=10, colors="black",
                                                linewidths=0.3, alpha=0.35, zorder=3)
                                     plt.colorbar(cf, ax=ax, label=dn, shrink=0.6)
                                     layers_rendered.append(lid_req)
                                     continue
-                            gdf.plot(ax=ax, color=color, markersize=3, alpha=0.7,
-                                     label=label, zorder=5)
+                            gdf.plot(ax=ax, color=color, markersize=markersize,
+                                     marker=marker, alpha=alpha_pt, label=label, zorder=5)
+
                         elif "line" in geom_type:
-                            # Relief contours: render like plot_relief (gray + elevation labels)
-                            elev_col = find_elevation_field(gdf)
+                            if style_override == "auto":
+                                elev_col = find_elevation_field(gdf)
+                            else:
+                                elev_col = None
                             if elev_col:
-                                gdf.plot(ax=ax, color="#888888", linewidth=0.5,
+                                gdf.plot(ax=ax, color="#888888", linewidth=linewidth or 0.5,
                                          alpha=0.5, zorder=4, label=label)
                                 label_isolines(ax, gdf, elev_col, bounds, target=50)
                             else:
-                                gdf.plot(ax=ax, color=color, linewidth=0.8, alpha=0.8,
-                                         label=label, zorder=5)
+                                gdf.plot(ax=ax, color=color, linewidth=linewidth,
+                                         alpha=alpha_ln, label=label, zorder=5)
                         else:
                             gdf.plot(ax=ax, facecolor="none", edgecolor=color,
-                                     linewidth=0.8, alpha=0.8, label=label, zorder=5)
+                                     linewidth=linewidth, alpha=alpha_ln, label=label, zorder=5)
                         layers_rendered.append(lid_req)
                     except Exception as exc:
                         warnings_out.append(f"Ошибка рендеринга слоя {lid_req}: {exc}")
