@@ -778,7 +778,7 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
             patch_scores.append(sc_val)
 
         patch_scores_arr = np.array(patch_scores)
-        col = PatchCollection(patches, cmap="viridis", alpha=0.55, linewidths=0)
+        col = PatchCollection(patches, cmap="viridis", alpha=0.45, linewidths=0, zorder=2)
         col.set_array(patch_scores_arr)
         ax.add_collection(col)
         plt.colorbar(col, ax=ax, label="Prospectivity Score", shrink=0.7)
@@ -786,6 +786,7 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
         # Optional GIS layers
         layers_rendered: list[str] = []
         warnings_out: list[str] = []
+        all_bounds: list = []  # Собираем bounds всех слоёв для корректного масштабирования
         if layers:
             # Нормализуем оба формата: ["id1","id2"] и [{"layer_id":"id1",...}]
             try:
@@ -819,9 +820,12 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
                     try:
                         gdf = load_and_reproject(gdb_path, lid_req)
                         gdf, _ = prepare_for_plot(gdf)
+                        gdf_unclipped = gdf.copy()  # Сохраняем оригинальные bounds перед клипом
                         gdf = clip_to_view(gdf, bounds)
                         if gdf.empty:
+                            warnings_out.append(f"Слой {lid_req} пуст после клипа по границам карты")
                             continue
+                        all_bounds.append(gdf_unclipped.total_bounds)  # Добавляем оригинальные bounds для расчёта осей
 
                         # Per-layer style params
                         color = spec.get("color") or _default_colors[i % len(_default_colors)]
@@ -911,7 +915,7 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
                                     layers_rendered.append(lid_req)
                                     continue
                             gdf.plot(ax=ax, color=color, markersize=markersize,
-                                     marker=marker, alpha=alpha_pt, label=label, zorder=5)
+                                     marker=marker, alpha=alpha_pt, label=label, zorder=10)
 
                         elif "line" in geom_type:
                             if style_override == "auto":
@@ -920,14 +924,14 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
                                 elev_col = None
                             if elev_col:
                                 gdf.plot(ax=ax, color="#888888", linewidth=linewidth or 0.5,
-                                         alpha=0.5, zorder=4, label=label)
+                                         alpha=0.5, zorder=9, label=label)
                                 label_isolines(ax, gdf, elev_col, bounds, target=50)
                             else:
                                 gdf.plot(ax=ax, color=color, linewidth=linewidth,
-                                         alpha=alpha_ln, label=label, zorder=5)
+                                         alpha=alpha_ln, label=label, zorder=10)
                         else:
                             gdf.plot(ax=ax, facecolor="none", edgecolor=color,
-                                     linewidth=linewidth, alpha=alpha_ln, label=label, zorder=5)
+                                     linewidth=linewidth, alpha=alpha_ln, label=label, zorder=10)
                         layers_rendered.append(lid_req)
                     except Exception as exc:
                         warnings_out.append(f"Ошибка рендеринга слоя {lid_req}: {exc}")
@@ -936,8 +940,14 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
 
         draw_license_boundary(ax, lic_gdf, zorder=10)
 
-        ax.set_xlim(minx, maxx)
-        ax.set_ylim(miny, maxy)
+        # Используй bounds слоёв если есть, иначе исходные bounds (как в plot_overlay)
+        if all_bounds:
+            all_bounds_arr = np.array(all_bounds)
+            ax.set_xlim(all_bounds_arr[:, 0].min(), all_bounds_arr[:, 2].max())
+            ax.set_ylim(all_bounds_arr[:, 1].min(), all_bounds_arr[:, 3].max())
+        else:
+            ax.set_xlim(minx, maxx)
+            ax.set_ylim(miny, maxy)
         ax.set_xlabel("Longitude")
         ax.set_ylabel("Latitude")
 
@@ -971,6 +981,7 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
             "visualization_type": visualization_type,
             "blocks_rendered": len(lons),
             "layers_rendered": layers_rendered,
+            "warnings": warnings_out if warnings_out else None,
             "score_range": {
                 "min": round(min(scores), 4),
                 "max": round(max(scores), 4),
