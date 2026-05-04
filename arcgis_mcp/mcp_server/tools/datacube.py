@@ -786,7 +786,6 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
         # Optional GIS layers
         layers_rendered: list[str] = []
         warnings_out: list[str] = []
-        all_bounds: list = []  # Собираем bounds всех слоёв для корректного масштабирования
         if layers:
             # Нормализуем оба формата: ["id1","id2"] и [{"layer_id":"id1",...}]
             try:
@@ -820,12 +819,10 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
                     try:
                         gdf = load_and_reproject(gdb_path, lid_req)
                         gdf, _ = prepare_for_plot(gdf)
-                        gdf_unclipped = gdf.copy()  # Сохраняем оригинальные bounds перед клипом
                         gdf = clip_to_view(gdf, bounds)
                         if gdf.empty:
                             warnings_out.append(f"Слой {lid_req} пуст после клипа по границам карты")
                             continue
-                        all_bounds.append(gdf_unclipped.total_bounds)  # Добавляем оригинальные bounds для расчёта осей
 
                         # Per-layer style params
                         color = spec.get("color") or _default_colors[i % len(_default_colors)]
@@ -940,14 +937,10 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
 
         draw_license_boundary(ax, lic_gdf, zorder=10)
 
-        # Используй bounds слоёв если есть, иначе исходные bounds (как в plot_overlay)
-        if all_bounds:
-            all_bounds_arr = np.array(all_bounds)
-            ax.set_xlim(all_bounds_arr[:, 0].min(), all_bounds_arr[:, 2].max())
-            ax.set_ylim(all_bounds_arr[:, 1].min(), all_bounds_arr[:, 3].max())
-        else:
-            ax.set_xlim(minx, maxx)
-            ax.set_ylim(miny, maxy)
+        # Масштабирование: используй исходные bounds от лицензии
+        # (всегда центрировано по лицензии, не по слоям, чтобы избежать выбросов)
+        ax.set_xlim(minx, maxx)
+        ax.set_ylim(miny, maxy)
         ax.set_xlabel("Longitude")
         ax.set_ylabel("Latitude")
 
