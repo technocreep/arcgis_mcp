@@ -747,10 +747,14 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
                       max(lons) + pad_lon, max(lats) + pad_lat)
 
         minx, miny, maxx, maxy = bounds
-        aspect = (maxx - minx) / max(maxy - miny, 1e-9)
-        fig_w = min(14, max(8, aspect * 8))
-        fig_h = fig_w / aspect
-        fig, ax = plt.subplots(figsize=(fig_w, fig_h), dpi=150)
+        _vdx = (maxx - minx) or 1
+        _vdy = (maxy - miny) or 1
+        _ratio = _vdx / _vdy
+        # Фиксированная ширина, высота по ratio (как в plot_overlay)
+        _fig_w = 12
+        _fig_h = max(6, min(14, _fig_w / max(_ratio, 0.3)))
+        fig, ax = plt.subplots(figsize=(_fig_w, _fig_h), dpi=150)
+        ax.set_aspect("equal")  # Гарантирует истинные пропорции без растяжения
 
         # Score layer — semi-transparent rectangles sized by cell_size_m
         import math
