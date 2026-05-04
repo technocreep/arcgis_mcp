@@ -805,7 +805,7 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
                 _default_colors = ["#e63946", "#2196F3", "#4CAF50", "#FF9800", "#9C27B0",
                                    "#00BCD4", "#795548", "#607D8B"]
                 for i, spec in enumerate(layer_specs):
-                    lid_req = spec.get("layer_id") or spec if isinstance(spec, str) else None
+                    lid_req = spec.get("layer_id")
                     if not lid_req:
                         continue
                     lyr_meta = layer_index.get(lid_req)
