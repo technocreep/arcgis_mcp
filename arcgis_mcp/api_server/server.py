@@ -38,7 +38,7 @@ from arcgis_mcp.mcp_server.tools.viz_plot_layer import make_tools as make_plot_l
 from arcgis_mcp.mcp_server.tools.viz_plot_overlay import make_tools as make_plot_overlay_tools
 from arcgis_mcp.mcp_server.tools.viz_plot_relief import make_tools as make_plot_relief_tools
 from arcgis_mcp.mcp_server.tools.viz_histogram import make_tools as make_plot_histogram_tools
-from arcgis_mcp.mcp_server.tools.viz_interactive import make_tools as make_plot_interactive_tools
+# from arcgis_mcp.mcp_server.tools.viz_interactive import make_tools as make_plot_interactive_tools
 from arcgis_mcp.mcp_server.tools.datacube import make_tools as make_datacube_tools
 from arcgis_mcp.mcp_server.tools.kg_query import make_tools as make_kg_query_tools
 from arcgis_mcp.mcp_server.tools.work_type_lookup import make_tools as make_lookup_tools
@@ -89,7 +89,7 @@ search_izuchennost_fn, get_izuchennost_records_fn = _izuch
 (plot_overlay_fn,) = make_plot_overlay_tools(store, _state)
 (plot_relief_fn,) = make_plot_relief_tools(store, _state)
 (plot_histogram_fn,) = make_plot_histogram_tools(store, _state)
-(plot_interactive_fn,) = make_plot_interactive_tools(store, _state)
+# (plot_interactive_fn,) = make_plot_interactive_tools(store, _state)
 
 (
     datacube_overview_fn,
@@ -544,60 +544,8 @@ async def plot_histogram(req: PlotHistogramRequest):
     )
 
 
-class PlotInteractiveRequest(BaseModel):
-    layers: str = Field(
-        ...,
-        description=(
-            'JSON-массив ID слоёв. Пример: \'["Скважины_ГСК","Канавы_ГСК","river"]\'. '
-            'Все слои автоматически конвертируются в WGS84.'
-        ),
-    )
-    project_id: str = Field(..., description="ID проекта из list_projects()")
-    tooltip_fields: Optional[str] = Field(
-        None,
-        description=(
-            'JSON-словарь {layer_id: [field1, field2, ...]}. '
-            'Если None — поля выбираются автоматически из manifest. '
-            'Пример: \'{"Скважины_ГСК": ["Имя", "POINT_Z", "Участ"]}\''
-        ),
-    )
-    center: Optional[str] = Field(
-        None, description='Центр карты "[lat, lon]". None → авто-центр по данным.'
-    )
-    zoom: int = Field(10, ge=1, le=20, description="Начальный масштаб (по умолчанию 10)")
-    max_features_per_layer: int = Field(
-        500, ge=1, le=5000,
-        description="Максимум объектов на слой. Тяжёлые слои усекаются с предупреждением."
-    )
-    style_overrides: Optional[str] = Field(
-        None,
-        description=(
-            'JSON-словарь переопределения стилей {layer_id: {color, weight, ...}}. '
-            'Пример: \'{"river": {"color": "#4488ff", "weight": 1}}\''
-        ),
-    )
-
-
-@app.post(
-    "/plot_interactive",
-    operation_id="plot_interactive",
-    summary="Создать интерактивную HTML-карту (Folium) с переключением слоёв",
-    tags=["visualization"],
-)
-async def plot_interactive(req: PlotInteractiveRequest):
-    """Интерактивная HTML-карта (Folium) — навигация, tooltip'ы, переключение слоёв.
-
-    Возвращает: url (путь к .html), file, warnings (если слои усечены).
-    Лучше для исследования: скважины, канавы, пробы, точки наблюдений.
-    Слои >max_features_per_layer усекаются с предупреждением.
-    Tooltip-поля выбираются автоматически из manifest или по param tooltip_fields.
-    """
-    return _parse(
-        plot_interactive_fn(
-            req.layers, req.project_id, req.tooltip_fields, req.center,
-            req.zoom, req.max_features_per_layer, req.style_overrides,
-        )
-    )
+# class PlotInteractiveRequest(BaseModel): ...
+# @app.post("/plot_interactive", ...) — временно отключено
 
 
 # ---------------------------------------------------------------------------

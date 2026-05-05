@@ -165,9 +165,13 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
             base = semantic or DEFAULT_STYLES.get(gt_key, {})
 
             gt_lower = gt.lower()
-            is_relief = any(kw in resolved_id.lower() or kw in display_name.lower()
-                            for kw in _RELIEF_KEYWORDS)
-            style_spec = spec.get("style", "scatter")
+            style_spec = spec.get("style", "auto")
+            # is_relief только когда стиль не задан явно
+            is_relief = (
+                style_spec in ("auto", "scatter")
+                and any(kw in resolved_id.lower() or kw in display_name.lower()
+                        for kw in _RELIEF_KEYWORDS)
+            )
 
             records.append({
                 "spec": spec,
