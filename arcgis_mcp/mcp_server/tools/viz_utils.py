@@ -473,8 +473,9 @@ def label_isolines(
     elev_col: str,
     view: tuple[float, float, float, float],
     target: int = 50,
+    color: str = "saddlebrown",
 ) -> None:
-    """Подписать изолинии высоты в середине каждой N-й линии.
+    """Подписать изолинии в середине каждой N-й линии.
 
     Количество подписей адаптируется по числу видимых изолиний (target в видимой области).
     """
@@ -494,7 +495,7 @@ def label_isolines(
         ax.annotate(
             str(int(round(val))),
             xy=(mid.x, mid.y),
-            fontsize=6, color="saddlebrown",
+            fontsize=6, color=color,
             ha="center", va="center",
             bbox=dict(boxstyle="round,pad=0.1", fc="white", ec="none", alpha=0.65),
         )

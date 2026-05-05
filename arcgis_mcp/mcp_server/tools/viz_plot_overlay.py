@@ -300,6 +300,9 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
                 else:
                     gdf.plot(ax=ax, color=color, linewidth=linewidth,
                              linestyle=linestyle, alpha=alpha, zorder=zorder)
+                    elev_col = find_elevation_field(gdf)
+                    if elev_col and view_bounds:
+                        label_isolines(ax, gdf, elev_col, view_bounds, target=50, color=color)
                     legend_handles.append(
                         Line2D([0], [0], color=color, linewidth=2, linestyle=linestyle, label=label)
                     )
