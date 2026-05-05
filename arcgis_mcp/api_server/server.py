@@ -82,7 +82,7 @@ _att = make_attachment_tools(store, _state)
 
 list_projects_fn, get_project_summary_fn, list_layers_fn, describe_layer_fn = _inv
 query_features_fn, summarize_layer_fn = _qry
-(search_izuchennost_fn,) = _izuch
+search_izuchennost_fn, get_izuchennost_records_fn = _izuch
 (list_attachments_fn,) = _att
 
 (plot_layer_fn,) = make_plot_layer_tools(store, _state)
@@ -271,43 +271,51 @@ async def summarize_layer(req: SummarizeLayerRequest):
 
 class SearchIzuchennostRequest(BaseModel):
     project_id: str = Field(..., description="ID проекта из list_projects()")
-    query: Optional[str] = Field(
-        None,
-        description='Текстовый поиск по названию отчёта, авторам, организации. Пример: "аэромагнитная"',
-    )
-    year_from: Optional[int] = Field(
-        None, description="Год начала работ не раньше (включительно)"
-    )
-    year_to: Optional[int] = Field(
-        None, description="Год окончания работ не позже (включительно)"
-    )
-    work_type: Optional[str] = Field(
-        None,
-        description='Вид работ (частичное совпадение). Пример: "Аэромагнитная", "Геологическая съёмка"',
-    )
-    scale: Optional[str] = Field(
-        None, description='Масштаб (частичное совпадение). Пример: "1:200000"'
-    )
-    limit: int = Field(30, ge=1, le=200, description="Максимум записей (по умолчанию 30, макс 200)")
 
 
 @app.post(
     "/search_izuchennost",
     operation_id="search_izuchennost",
-    summary="Поиск ранее выполненных геологических работ по территории",
+    summary="Сводка геологических работ по десятилетиям",
     tags=["izuchennost"],
 )
 async def search_izuchennost(req: SearchIzuchennostRequest):
-    """Быстрый поиск карточек изученности по атрибутам.
+    """Обзор изученности территории: группировка по десятилетиям.
 
-    Возвращает: записи с name, year, work_type, scale, organization, area.
-    Ищет в слоях вроде Izuch_A_sel, Izuch_B_sel (частичное совпадение по строкам).
-    Для сложных семантических запросов (связи, история по минералу) используй geo_context_query.
+    Возвращает по каждому десятилетию: количество работ, организации, методы, масштабы.
+    Используй как первый шаг. Для конкретных записей используй get_izuchennost_records.
+    """
+    return _parse(search_izuchennost_fn(req.project_id))
+
+
+class GetIzuchennostRecordsRequest(BaseModel):
+    project_id: str = Field(..., description="ID проекта из list_projects()")
+    year_from: Optional[int] = Field(None, description="Год начала работ не раньше (включительно)")
+    year_to: Optional[int] = Field(None, description="Год окончания работ не позже (включительно)")
+    method: Optional[str] = Field(
+        None, description='Метод работ (частичное совпадение). Пример: "ГДП", "РНГ", "ТЕМ-Ц"'
+    )
+    organization: Optional[str] = Field(
+        None, description='Название организации (частичное совпадение). Пример: "Севморгео"'
+    )
+    limit: int = Field(50, ge=1, le=200, description="Максимум записей (по умолчанию 50, макс 200)")
+
+
+@app.post(
+    "/get_izuchennost_records",
+    operation_id="get_izuchennost_records",
+    summary="Полные записи геологических работ с фильтрацией",
+    tags=["izuchennost"],
+)
+async def get_izuchennost_records(req: GetIzuchennostRecordsRequest):
+    """Возвращает полные записи об отдельных геологических работах.
+
+    Фильтры: year_from/year_to, method (метод работ), organization.
+    id в каждой записи используй в extract_attachment() для получения PDF-карточки.
     """
     return _parse(
-        search_izuchennost_fn(
-            req.query, req.year_from, req.year_to,
-            req.work_type, req.scale, req.limit, req.project_id,
+        get_izuchennost_records_fn(
+            req.year_from, req.year_to, req.method, req.organization, req.limit, req.project_id,
         )
     )
 
@@ -625,7 +633,6 @@ async def datacube_overview(req: DatacubeOverviewRequest):
 
 class DatacubeBlockScoresRequest(BaseModel):
     project_id: str = Field(..., description="ID проекта из list_projects()")
-    top_n: int = Field(20, ge=1, le=200, description="Сколько блоков вернуть (по умолчанию 20)")
     min_score: Optional[float] = Field(None, ge=0.0, le=1.0, description="Минимальный порог score")
     scenario_id: Optional[str] = Field(
         None,
@@ -636,17 +643,17 @@ class DatacubeBlockScoresRequest(BaseModel):
 @app.post(
     "/datacube_block_scores",
     operation_id="datacube_block_scores",
-    summary="Список блоков куба, отсортированных по score проспективности",
+    summary="Статистика скоров проспективности по блокам куба",
     tags=["datacube"],
 )
 async def datacube_block_scores(req: DatacubeBlockScoresRequest):
-    """Список блоков по убыванию score.
+    """Статистика скоров по всем блокам (или выше min_score).
 
-    Возвращает: rank, block_id, score, lon, lat, dominant_driver_group.
-    block_id используй в datacube_block_detail() для полного профиля блока.
+    Возвращает: score_stats (min/max/mean/median), driver_group_breakdown.
+    Для детального профиля блока используй datacube_block_detail(block_id=...).
     В report mode укажи scenario_id.
     """
-    return _parse(datacube_block_scores_fn(req.project_id, req.top_n, req.min_score, req.scenario_id))
+    return _parse(datacube_block_scores_fn(req.project_id, req.min_score, req.scenario_id))
 
 
 class DatacubeBlockDetailRequest(BaseModel):

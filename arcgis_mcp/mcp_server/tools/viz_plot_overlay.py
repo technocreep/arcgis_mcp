@@ -220,27 +220,56 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
             loaded_layers.append(resolved_id)
 
             if "point" in gt_lower:
-                if style_spec == "density" and color_field and color_field in gdf.columns:
-                    col_vals = gdf[color_field]
+                if style_spec == "density":
                     _x = gdf.geometry.x.values
                     _y = gdf.geometry.y.values
-                    _mask = ~np.isnan(col_vals.values.astype(float))
-                    _x, _y, _z = _x[_mask], _y[_mask], col_vals.values.astype(float)[_mask]
-                    _dx = (_x.max() - _x.min()) or 1
-                    if view_bounds:
-                        _lic_dx = (view_bounds[2] - view_bounds[0]) or _dx
-                        _ig = min(500, max(200, round(300 * _dx / _lic_dx)))
+
+                    # Найти колонку нечувствительно к пробелам
+                    actual_col = None
+                    if color_field:
+                        cf_norm = " ".join(color_field.split()).lower()
+                        for col in gdf.columns:
+                            if " ".join(col.split()).lower() == cf_norm:
+                                actual_col = col
+                                break
+
+                    if actual_col is not None:
+                        col_vals = gdf[actual_col].values.astype(float)
+                        _mask = ~np.isnan(col_vals)
+                        _x, _y, _z = _x[_mask], _y[_mask], col_vals[_mask]
+                        _dx = (_x.max() - _x.min()) or 1
+                        if view_bounds:
+                            _lic_dx = (view_bounds[2] - view_bounds[0]) or _dx
+                            _ig = min(500, max(200, round(300 * _dx / _lic_dx)))
+                        else:
+                            _ig = 300
+                        gx, gy = np.mgrid[
+                            _x.min():_x.max():complex(_ig),
+                            _y.min():_y.max():complex(_ig),
+                        ]
+                        gz = griddata((_x, _y), _z, (gx, gy), method="linear")
+                        cf = ax.contourf(gx, gy, gz, levels=20, cmap=cmap_spec, zorder=zorder)
+                        plt.colorbar(cf, ax=ax, label=actual_col, shrink=0.8)
+                        ax.contour(gx, gy, gz, levels=10, colors="black",
+                                   linewidths=0.4, alpha=0.5, zorder=zorder)
                     else:
-                        _ig = 300
-                    gx, gy = np.mgrid[
-                        _x.min():_x.max():complex(_ig),
-                        _y.min():_y.max():complex(_ig),
-                    ]
-                    gz = griddata((_x, _y), _z, (gx, gy), method="linear")
-                    cf = ax.contourf(gx, gy, gz, levels=20, cmap=cmap_spec, zorder=zorder)
-                    plt.colorbar(cf, ax=ax, label=color_field, shrink=0.8)
-                    ax.contour(gx, gy, gz, levels=10, colors="black",
-                               linewidths=0.4, alpha=0.5, zorder=zorder)
+                        # Нет color_field — KDE по плотности точек
+                        from scipy.stats import gaussian_kde
+                        _mask = ~(np.isnan(_x) | np.isnan(_y))
+                        _x, _y = _x[_mask], _y[_mask]
+                        if len(_x) >= 4:
+                            kde = gaussian_kde(np.vstack([_x, _y]))
+                            _dx = (_x.max() - _x.min()) or 1
+                            _dy = (_y.max() - _y.min()) or 1
+                            _ig = min(300, max(100, round(200 * _dx / max(_dy, _dx))))
+                            gx, gy = np.mgrid[
+                                _x.min():_x.max():complex(_ig),
+                                _y.min():_y.max():complex(_ig),
+                            ]
+                            gz = kde(np.vstack([gx.ravel(), gy.ravel()])).reshape(gx.shape)
+                            cf = ax.contourf(gx, gy, gz, levels=15, cmap=cmap_spec,
+                                             alpha=alpha, zorder=zorder)
+                            plt.colorbar(cf, ax=ax, label="density", shrink=0.8)
                     legend_handles.append(
                         Line2D([0], [0], color="gray", linewidth=6, label=label)
                     )

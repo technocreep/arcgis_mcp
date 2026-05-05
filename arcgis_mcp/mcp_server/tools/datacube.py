@@ -311,25 +311,24 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
 
     def datacube_block_scores(
         project_id: str | None = None,
-        top_n: int = 20,
         min_score: float | None = None,
         scenario_id: str | None = None,
     ) -> str:
-        """Список блоков, отсортированных по скору проспективности (убывание).
+        """Статистика скоров проспективности по всем блокам (или с фильтром по порогу).
 
         Параметры:
-          top_n       — сколько блоков вернуть (1–200, по умолчанию 20)
-          min_score   — фильтровать блоки с score < min_score
+          min_score   — учитывать только блоки с score >= min_score
           scenario_id — ID сценария в report mode (если не указан — лучший по PR-AUC)
 
-        Каждая запись содержит: block_id, rank, score, lon, lat, dominant_driver_group.
+        Возвращает: total_blocks, score_stats (min/max/mean/median),
+        driver_group_breakdown (количество и средний скор по каждой группе).
+        Для детального профиля блока используй datacube_block_detail(block_id=...).
         """
         try:
             pid = _resolve_project(project_id)
         except ValueError as e:
             return json.dumps({"error": str(e)}, ensure_ascii=False)
 
-        top_n = max(1, min(200, top_n))
         report_mode = _detect_report_mode(pid)
         warnings: list[str] = []
 
@@ -351,17 +350,6 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
             )
         scores_rows = _parse_csv(scores_txt)
 
-        blocks_txt = _read("blocks.csv")
-        blocks_rows = _parse_csv(blocks_txt or "")
-        coords: dict[str, dict] = {}
-        if blocks_rows:
-            for r in blocks_rows:
-                bid = str(r.get("block_id", ""))
-                if bid:
-                    coords[bid] = {"lon": r.get("lon"), "lat": r.get("lat")}
-        else:
-            warnings.append("blocks.csv не найден, координаты недоступны")
-
         drv_txt = _read("interpretability/dominant_driver_group.csv")
         drv_rows = _parse_csv(drv_txt or "")
         driver: dict[str, str | None] = {}
@@ -377,28 +365,43 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
             for r in scores_rows
             if r.get("score") is not None
         ]
-        all_scores.sort(key=lambda x: x[1], reverse=True)
-
         if min_score is not None:
             all_scores = [(bid, s) for bid, s in all_scores if s >= min_score]
 
-        blocks_out = []
-        for rank, (bid, score) in enumerate(all_scores[:top_n], start=1):
-            entry: dict = {"rank": rank, "block_id": bid, "score": round(score, 4)}
-            c = coords.get(bid, {})
-            entry["lon"] = c.get("lon")
-            entry["lat"] = c.get("lat")
-            entry["dominant_driver_group"] = driver.get(bid)
-            blocks_out.append(entry)
+        scores_only = [s for _, s in all_scores]
+        if not scores_only:
+            return json.dumps({"error": "Нет блоков после применения фильтра."}, ensure_ascii=False)
+
+        scores_only.sort()
+        n = len(scores_only)
+        median = (scores_only[n // 2 - 1] + scores_only[n // 2]) / 2 if n % 2 == 0 else scores_only[n // 2]
+
+        # driver_group_breakdown: count + mean_score per group
+        group_scores: dict[str, list[float]] = {}
+        for bid, s in all_scores:
+            grp = driver.get(bid) or "unknown"
+            group_scores.setdefault(grp, []).append(s)
+        driver_breakdown = {
+            grp: {
+                "count": len(sv),
+                "mean_score": round(sum(sv) / len(sv), 4),
+            }
+            for grp, sv in sorted(group_scores.items(), key=lambda x: -len(x[1]))
+        }
 
         result: dict = {"project_id": pid}
         if report_mode:
             result["active_scenario"] = active_scenario
         result.update({
-            "total_blocks": len(all_scores),
-            "returned": len(blocks_out),
+            "total_blocks": n,
             "filters_applied": {"min_score": min_score},
-            "blocks": blocks_out,
+            "score_stats": {
+                "min":    round(scores_only[0], 4),
+                "max":    round(scores_only[-1], 4),
+                "mean":   round(sum(scores_only) / n, 4),
+                "median": round(median, 4),
+            },
+            "driver_group_breakdown": driver_breakdown,
         })
         if warnings:
             result["warnings"] = warnings
@@ -475,7 +478,7 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
         if feat_rows:
             frow = next((r for r in feat_rows if str(r.get("block_id")) == block_id), None)
             if frow:
-                features = {k: v for k, v in frow.items() if k != "block_id"}
+                features = {k: frow[k] for k in ("geo_unit", "minerag_unit") if k in frow}
         else:
             warnings.append("features.csv не найден")
 
