@@ -423,14 +423,17 @@ class PlotOverlayRequest(BaseModel):
     layers: str = Field(
         ...,
         description=(
-            'JSON-массив слоёв. Первый = подложка, последний = поверх. '
+            'JSON-массив слоёв. Порядок рендеринга определяется автоматически по типу геометрии '
+            '(крупные полигоны снизу → линии → точки сверху), порядок в массиве на это не влияет. '
             'Пример: \'[{"layer_id":"mms_r","style":"density","color_field":"дельта_T","colormap":"RdBu_r"},'
-            '{"layer_id":"relief"}]\'. '
-            'Ключи: layer_id (обязательно), style ("scatter"|"density"|"lines"|"polygons"), '
+            '{"layer_id":"relief","label_elevations":true}]\'. '
+            'Ключи: layer_id (обязательно), style ("scatter"|"density"|"lines"|"polygons"|"auto"), '
             'color_field (поле для density-интерполяции), colormap, '
-            'color, alpha, linewidth, linestyle, markersize, marker, edgecolor, label. '
+            'color, alpha, linewidth, linestyle, markersize, marker, edgecolor, label, '
+            'label_elevations (bool, по умолчанию false) — подписывать отметки высот вдоль линий; '
+            'используй ТОЛЬКО для слоёв горизонталей/рельефа, НЕ для рек и дорог. '
             'style="density"+color_field → griddata-интерполяция+contourf для точечных геофизических слоёв. '
-            'Рельефные слои (relief/горизонтали) рисуются серым с подписями высот автоматически.'
+            'Рельефные слои (с "relief" в имени) рисуются серым; подписи высот — только при label_elevations=true.'
         ),
     )
     project_id: str = Field(..., description="ID проекта из list_projects()")
@@ -491,8 +494,11 @@ async def plot_overlay(req: PlotOverlayRequest):
 
     Возвращает: markdown, url, file, layers_rendered, warnings.
     Порядок рендеринга: крупные полигоны → density → линии → точки (автоматически по типу).
-    Контур лицензии рисуется поверх всех слоёв.
-    Рельефные слои (с "relief"/"горизонт" в имени) рисуются серым с подписями высот автоматически.
+    Контур лицензии рисуется поверх всех слоёв; центровка по лицензии выполняется всегда,
+    даже при show_license=false.
+    Рельефные слои (с "relief" в имени) рисуются серым. Подписи высот НЕ добавляются
+    автоматически — для отметок рельефа укажи "label_elevations": true в spec нужного слоя.
+    Для полноценной карты рельефа с подписями предпочти plot_relief().
     """
     return _parse(
         plot_overlay_fn(
