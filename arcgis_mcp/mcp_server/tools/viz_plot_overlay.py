@@ -85,9 +85,14 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
                   markersize, marker, edgecolor, label (для легенды),
                   style ("scatter"|"density"|"lines"|"polygons"),
                   color_field (поле для раскраски/интерполяции),
-                  colormap (matplotlib colormap, напр. "RdBu_r").
+                  colormap (matplotlib colormap, напр. "RdBu_r"),
+                  label_elevations (bool, по умолчанию false) — подписывать отметки высот
+                    вдоль линий. Используй только для слоёв горизонталей/рельефа. НЕ
+                    ставь для рек, дорог и других линейных слоёв: подписи появятся там
+                    только если у слоя есть числовое поле высоты.
                 style="density" + color_field → интерполяция griddata + contourf для точечных слоёв.
-                Рельефные слои (relief/горизонтали) рисуются серым с подписями высот автоматически.
+                Рельефные слои (relief/горизонтали) рисуются серым; подписи высот добавляются
+                только если явно указано "label_elevations": true.
 
             project_id: ID проекта (необязательно, если уже выбран).
             show_license: Рисовать контур лицензии последним (по умолчанию True).
@@ -114,8 +119,9 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
 
         all_bounds: list = []
 
-        # Контур лицензии — задаёт видимую область
-        lic_gdf = get_license_boundary(pid, store) if show_license else None
+        # Контур лицензии — задаёт видимую область (загружаем всегда для view_bounds,
+        # рисуем только при show_license=True)
+        lic_gdf = get_license_boundary(pid, store)
         view_bounds = get_license_view_bounds(lic_gdf, margin=license_margin)
 
         # Размер фигуры из соотношения сторон view_bounds — чтобы set_aspect("equal")
@@ -182,6 +188,7 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
                 "gt_lower": gt_lower,
                 "is_relief": is_relief,
                 "style_spec": style_spec,
+                "label_elevations": bool(spec.get("label_elevations", False)),
                 "color_field": spec.get("color_field"),
                 "cmap_spec": spec.get("colormap", "viridis"),
                 "color":     spec.get("color",     base.get("color", "steelblue")),
@@ -289,20 +296,23 @@ def make_tools(store: ProjectStore, state: dict) -> list[Callable]:
                     )
 
             elif "line" in gt_lower or "string" in gt_lower:
+                label_elevations = rec["label_elevations"]
                 if is_relief:
                     gdf.plot(ax=ax, color="#888888", linewidth=0.5, alpha=0.5, zorder=zorder)
-                    elev_col = find_elevation_field(gdf)
-                    if elev_col and view_bounds:
-                        label_isolines(ax, gdf, elev_col, view_bounds, target=50)
+                    if label_elevations:
+                        elev_col = find_elevation_field(gdf)
+                        if elev_col and view_bounds:
+                            label_isolines(ax, gdf, elev_col, view_bounds, target=50)
                     legend_handles.append(
                         Line2D([0], [0], color="#888888", linewidth=2, label=label)
                     )
                 else:
                     gdf.plot(ax=ax, color=color, linewidth=linewidth,
                              linestyle=linestyle, alpha=alpha, zorder=zorder)
-                    elev_col = find_elevation_field(gdf)
-                    if elev_col and view_bounds:
-                        label_isolines(ax, gdf, elev_col, view_bounds, target=50, color=color)
+                    if label_elevations:
+                        elev_col = find_elevation_field(gdf)
+                        if elev_col and view_bounds:
+                            label_isolines(ax, gdf, elev_col, view_bounds, target=50, color=color)
                     legend_handles.append(
                         Line2D([0], [0], color=color, linewidth=2, linestyle=linestyle, label=label)
                     )
