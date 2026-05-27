@@ -111,7 +111,7 @@ def _hex_to_rgba(color: str, alpha: float = 0.4) -> str:
     return f"rgba({r},{g},{b},{alpha})"
 
 
-def _make_hover(row: "pd.Series", fields: list[str], gk: tuple[float, float] | None) -> str:
+def _make_hover(row, fields: list[str], gk: tuple[float, float] | None) -> str:
     parts = []
     if gk is not None:
         parts.append(f"X: {gk[0]:.0f} м | Y: {gk[1]:.0f} м")
@@ -519,7 +519,7 @@ def make_tools(store, state: dict) -> list[Callable]:
                 mode="lines",
                 lat=lic_lats,
                 lon=lic_lons,
-                line={"color": "red", "width": 2, "dash": "dash"},
+                line={"color": "red", "width": 2},
                 name="Контур лицензии",
                 hovertemplate="<b>Контур лицензии</b><extra></extra>",
             ))
