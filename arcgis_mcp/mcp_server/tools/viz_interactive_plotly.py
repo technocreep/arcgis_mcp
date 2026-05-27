@@ -39,6 +39,14 @@ from arcgis_mcp.mcp_server.tools.viz_utils import (
 # Константы
 # ---------------------------------------------------------------------------
 
+# Палитра для слоёв без семантического стиля — достаточно различимые цвета
+_COLOR_PALETTE = [
+    "#1F77B4", "#FF7F0E", "#2CA02C", "#D62728", "#9467BD",
+    "#8C564B", "#E377C2", "#7F7F7F", "#BCBD22", "#17BECF",
+    "#AEC7E8", "#FFBB78", "#98DF8A", "#FF9896", "#C5B0D5",
+    "#C49C94", "#F7B6D2", "#C7C7C7", "#DBDB8D", "#9EDAE5",
+]
+
 _BASEMAPS: dict[str, dict] = {
     "satellite": {
         "style": "white-bg",
@@ -71,6 +79,12 @@ _DEFAULT_SYMBOL = ("circle", 8)
 # ---------------------------------------------------------------------------
 # Вспомогательные функции
 # ---------------------------------------------------------------------------
+
+def _palette_color(layer_id: str) -> str:
+    """Детерминированный цвет из палитры по хешу layer_id."""
+    idx = int(hashlib.md5(layer_id.encode()).hexdigest(), 16) % len(_COLOR_PALETTE)
+    return _COLOR_PALETTE[idx]
+
 
 def _point_symbol(layer_id: str, display_name: str) -> tuple[str, int]:
     name = (layer_id + " " + display_name).lower()
@@ -346,7 +360,7 @@ def make_tools(store, state: dict) -> list[Callable]:
                 color_field = None
 
             sem = get_semantic_style(resolved_id, display_name, entry.get("feature_dataset")) or {}
-            spec_color = spec.get("color") or sem.get("color", "#4488CC")
+            spec_color = spec.get("color") or sem.get("color") or _palette_color(resolved_id)
             colormap_name = spec.get("colormap", "auto")
             if colormap_name == "auto":
                 colormap_name = auto_colormap(color_field, entry.get("units"), display_name)
