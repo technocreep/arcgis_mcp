@@ -554,12 +554,6 @@ def make_tools(store, state: dict) -> list[Callable]:
         if all_extra:
             mapbox_cfg["layers"] = all_extra
 
-        # ── Масштабная линейка ─────────────────────────────────────────────
-        cos_lat = max(np.cos(np.radians(center_lat)), 0.1)
-        km50_deg = 50_000 / (111_320 * cos_lat)
-        span = maxlon - minlon
-        bar_label = "━━━ 100 км" if span > km50_deg * 2 else "━━ 50 км"
-
         # ── Фигура ─────────────────────────────────────────────────────────
         auto_title = title or ", ".join(
             s.get("layer_id", "") for s in layer_specs[:4]
@@ -575,23 +569,80 @@ def make_tools(store, state: dict) -> list[Callable]:
                 "borderwidth": 1,
                 "font": {"size": 11},
             },
-            annotations=[{
-                "xref": "paper", "yref": "paper",
-                "x": 0.01, "y": 0.04,
-                "text": bar_label,
-                "showarrow": False,
-                "font": {"size": 12, "color": "white"},
-                "bgcolor": "rgba(0,0,0,0.50)",
-                "borderpad": 5,
-            }],
         )
+
+        # ── Динамическая масштабная линейка (JS) ───────────────────────────
+        scalebar_js = """
+(function() {
+    var gd = document.querySelector('.plotly-graph-div');
+    if (!gd) return;
+
+    // Создаём DOM-элемент линейки поверх карты
+    var bar = document.createElement('div');
+    bar.id = 'dyn-scale-bar';
+    bar.style.cssText = [
+        'position:absolute', 'bottom:28px', 'left:14px',
+        'display:flex', 'align-items:center', 'gap:5px',
+        'background:rgba(0,0,0,0.50)', 'color:#fff',
+        'padding:4px 8px', 'border-radius:3px',
+        'font:12px/1 Arial,sans-serif', 'pointer-events:none', 'z-index:999'
+    ].join(';');
+    gd.style.position = 'relative';
+    gd.appendChild(bar);
+
+    function niceDistance(meters) {
+        var mag = Math.pow(10, Math.floor(Math.log10(meters)));
+        var f = meters / mag;
+        var nice = f < 1.5 ? mag : f < 3.5 ? 2*mag : f < 7.5 ? 5*mag : 10*mag;
+        var label = nice >= 1000 ? (nice/1000).toFixed(0)+'\u00a0км' : nice.toFixed(0)+'\u00a0м';
+        return {meters: nice, label: label};
+    }
+
+    function update(zoom, lat) {
+        // Метров на пиксель при данном зуме и широте
+        var mpp = 40075016.686 * Math.cos(lat * Math.PI / 180) / (512 * Math.pow(2, zoom));
+        var target = niceDistance(mpp * 100);   // ширина ~100px
+        var barPx = Math.round(target.meters / mpp);
+        bar.innerHTML =
+            '<span style="display:inline-block;width:'+barPx+'px;height:3px;'+
+            'background:#fff;border:1px solid #fff;box-sizing:border-box"></span>' +
+            '<span>'+target.label+'</span>';
+    }
+
+    function getMapboxState() {
+        try {
+            var mb = gd.layout.mapbox;
+            return { zoom: mb.zoom || 8, lat: (mb.center || {}).lat || 60 };
+        } catch(e) { return {zoom: 8, lat: 60}; }
+    }
+
+    gd.on('plotly_relayout', function(ev) {
+        var s = getMapboxState();
+        // relayout даёт нам обновлённые значения напрямую
+        var z = (ev['mapbox.zoom'] != null) ? ev['mapbox.zoom'] : s.zoom;
+        var lat = (ev['mapbox.center.lat'] != null) ? ev['mapbox.center.lat'] : s.lat;
+        update(z, lat);
+    });
+
+    // Первый рендер — ждём plotly_afterplot
+    gd.on('plotly_afterplot', function() {
+        var s = getMapboxState();
+        update(s.zoom, s.lat);
+    });
+})();
+"""
 
         # ── Сохранение HTML ────────────────────────────────────────────────
         out_dir = Path(PROJECTS_DIR) / pid / "viz"
         out_dir.mkdir(parents=True, exist_ok=True)
         fname = f"interactive_{int(time.time())}.html"
         out_path = out_dir / fname
-        fig.write_html(str(out_path), include_plotlyjs="cdn", full_html=True)
+        fig.write_html(
+            str(out_path),
+            include_plotlyjs="cdn",
+            full_html=True,
+            post_script=scalebar_js,
+        )
 
         url = upload_to_minio(str(out_path), pid)
         result: dict = {
