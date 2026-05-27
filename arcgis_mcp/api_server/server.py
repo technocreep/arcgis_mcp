@@ -38,7 +38,7 @@ from arcgis_mcp.mcp_server.tools.viz_plot_layer import make_tools as make_plot_l
 from arcgis_mcp.mcp_server.tools.viz_plot_overlay import make_tools as make_plot_overlay_tools
 from arcgis_mcp.mcp_server.tools.viz_plot_relief import make_tools as make_plot_relief_tools
 from arcgis_mcp.mcp_server.tools.viz_histogram import make_tools as make_plot_histogram_tools
-# from arcgis_mcp.mcp_server.tools.viz_interactive import make_tools as make_plot_interactive_tools
+from arcgis_mcp.mcp_server.tools.viz_interactive_plotly import make_tools as make_plot_interactive_tools
 from arcgis_mcp.mcp_server.tools.datacube import make_tools as make_datacube_tools
 from arcgis_mcp.mcp_server.tools.kg_query import make_tools as make_kg_query_tools
 from arcgis_mcp.mcp_server.tools.work_type_lookup import make_tools as make_lookup_tools
@@ -89,7 +89,7 @@ search_izuchennost_fn, get_izuchennost_records_fn = _izuch
 (plot_overlay_fn,) = make_plot_overlay_tools(store, _state)
 (plot_relief_fn,) = make_plot_relief_tools(store, _state)
 (plot_histogram_fn,) = make_plot_histogram_tools(store, _state)
-# (plot_interactive_fn,) = make_plot_interactive_tools(store, _state)
+(plot_interactive_fn,) = make_plot_interactive_tools(store, _state)
 
 (
     datacube_overview_fn,
@@ -550,8 +550,47 @@ async def plot_histogram(req: PlotHistogramRequest):
     )
 
 
-# class PlotInteractiveRequest(BaseModel): ...
-# @app.post("/plot_interactive", ...) — временно отключено
+class PlotInteractiveRequest(BaseModel):
+    project_id: str = Field(..., description="ID проекта из list_projects()")
+    layers: str = Field(
+        ...,
+        description=(
+            'JSON-массив layer spec. Каждый элемент: '
+            '{"layer_id": "...", "style": "auto|density|heatmap|scatter|lines|polygons", '
+            '"color_field": "...", "colormap": "auto", "color": "#RRGGBB"}. '
+            'style="density" — физическое поле (гравика, магнитка): griddata-интерполяция + PNG-оверлей. '
+            'style="heatmap" — тепловая карта точек (go.Densitymapbox). '
+            'Пример: \'[{"layer_id": "wells"}, {"layer_id": "gravity_pts", '
+            '"style": "density", "color_field": "dg"}]\''
+        ),
+    )
+    basemap: str = Field(
+        "satellite",
+        description='"satellite" (ESRI World Imagery, по умолчанию), "osm", "carto", "dark"',
+    )
+    zoom: Optional[int] = Field(None, description="Начальный зум Mapbox (None → авто по extent)")
+    title: Optional[str] = Field(None, description="Заголовок карты (None → авто)")
+
+
+@app.post(
+    "/plot_interactive",
+    operation_id="plot_interactive",
+    summary="Интерактивная HTML-карта (Plotly Mapbox) для нескольких слоёв",
+    tags=["visualization"],
+)
+async def plot_interactive(req: PlotInteractiveRequest):
+    """Интерактивная карта: зум, hover-подписи атрибутов, GK-координаты, спутниковая подложка.
+
+    Переключение слоёв — через легенду. Физические поля (гравика, магнитка) указывай
+    с style="density" + color_field — будет построена griddata-интерполяция.
+    Возвращает: url (MinIO) или file (локальный путь к .html).
+    Сообщи пользователю прямую ссылку из поля url — HTML нельзя вставить как изображение.
+    """
+    return _parse(
+        plot_interactive_fn(
+            req.layers, req.project_id, req.basemap, req.zoom, req.title,
+        )
+    )
 
 
 # ---------------------------------------------------------------------------
